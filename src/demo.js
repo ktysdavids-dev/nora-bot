@@ -13,7 +13,8 @@ import { Order } from "./order.js";
 import { toolSchemas, runTool } from "./tools.js";
 import { buildInstructions } from "./prompt.js";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let client = null;
+function getClient(){ if(!client) client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); return client; }
 const MODEL = process.env.DEMO_MODEL || "gpt-4o-mini";
 
 // messages: [{role:'user'|'assistant'|'tool'..., content}], pero para simplificar
@@ -26,7 +27,7 @@ export async function demoTurn(cfg, history, order) {
 
   // Bucle de tool-calling hasta que Nora responda en texto al cliente.
   for (let i = 0; i < 6; i++) {
-    const resp = await client.chat.completions.create({
+    const resp = await getClient().chat.completions.create({
       model: MODEL,
       messages,
       tools: toolSchemas,
