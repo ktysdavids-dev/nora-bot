@@ -1,0 +1,22 @@
+{
+  "name": "nora-bot",
+  "version": "0.1.0",
+  "description": "Nora — recepcionista de voz con IA, multilingüe y configurable por negocio. Telefonía (Twilio + OpenAI Realtime) + integración TPV Glop + demo de venta.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@fastify/formbody": "^7.4.0",
+    "@fastify/static": "^7.0.0",
+    "@fastify/websocket": "^10.0.0",
+    "@openai/agents": "^0.0.5",
+    "@openai/agents-extensions": "^0.0.5",
+    "fastify": "^4.28.0",
+    "openai": "^4.67.0",
+    "zod": "^3.23.0"
+  }
+}

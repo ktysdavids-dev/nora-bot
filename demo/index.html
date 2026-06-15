@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nora · Demo</title>
+<style>
+  :root{--ink:#0c0905;--panel:#16100a;--line:rgba(205,164,80,.22);--gold:#cda450;--gold-bri:#eccd82;--cream:#f4eede;--dim:rgba(244,238,222,.6)}
+  *{box-sizing:border-box;margin:0;font-family:'Inter Tight',-apple-system,system-ui,sans-serif}
+  body{background:radial-gradient(120% 80% at 80% 0%,#241a0f,#0a0703 60%);color:var(--cream);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px}
+  .app{width:100%;max-width:920px;display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+  @media(max-width:760px){.app{grid-template-columns:1fr}}
+  .card{background:linear-gradient(160deg,#16100a,#0d0a06);border:1px solid var(--line);border-radius:20px;overflow:hidden;display:flex;flex-direction:column}
+  .chat{height:78vh;min-height:520px}
+  .hd{display:flex;align-items:center;gap:13px;padding:16px 18px;border-bottom:1px solid var(--line)}
+  .av{width:50px;height:50px;border-radius:50%;background:#1a1209 url('nora.png') 50% 50%/106%;border:1.5px solid rgba(227,192,116,.5)}
+  .hd h1{font-family:Georgia,serif;font-size:21px;font-weight:600}
+  .hd .s{font-size:12px;color:var(--gold);letter-spacing:.14em;text-transform:uppercase;font-weight:700}
+  .hd .live{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:11px;color:var(--dim)}
+  .dot{width:8px;height:8px;border-radius:50%;background:#7bd389;box-shadow:0 0 0 4px rgba(123,211,137,.18)}
+  .msgs{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:12px}
+  .m{max-width:82%;padding:11px 15px;border-radius:16px;font-size:15px;line-height:1.45}
+  .m.bot{align-self:flex-start;background:#221a10;border:1px solid var(--line);border-bottom-left-radius:5px}
+  .m.me{align-self:flex-end;background:linear-gradient(120deg,#caa24c,#eccd82);color:#1c1407;border-bottom-right-radius:5px;font-weight:500}
+  .bar{display:flex;gap:9px;padding:14px;border-top:1px solid var(--line)}
+  .bar input{flex:1;background:#0e0a06;border:1px solid var(--line);border-radius:12px;color:var(--cream);padding:12px 14px;font-size:15px;outline:none}
+  .bar button{border:none;border-radius:12px;padding:0 16px;font-weight:700;cursor:pointer}
+  .send{background:linear-gradient(120deg,#caa24c,#eccd82);color:#1c1407}
+  .mic{background:#221a10;border:1px solid var(--line)!important;color:var(--gold-bri);font-size:18px}
+  .mic.on{background:#c0392b;color:#fff}
+  .cart .hd2{padding:16px 18px;border-bottom:1px solid var(--line);font-family:Georgia,serif;font-size:18px;font-weight:600}
+  .cart .body{padding:16px 18px;flex:1;display:flex;flex-direction:column;gap:10px}
+  .ci{display:flex;justify-content:space-between;font-size:14px;color:var(--cream);border-bottom:1px dashed rgba(205,164,80,.18);padding-bottom:8px}
+  .empty{color:var(--dim);font-size:14px}
+  .tot{margin-top:auto;display:flex;justify-content:space-between;align-items:baseline;padding-top:12px;border-top:1px solid var(--line)}
+  .tot b{font-family:Georgia,serif;font-size:28px;color:var(--gold-bri)}
+  .tag{font-size:11px;color:var(--dim);padding:0 18px 14px}
+  .langsel{margin-left:8px;background:#0e0a06;border:1px solid var(--line);color:var(--cream);border-radius:8px;padding:4px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="card chat">
+    <div class="hd">
+      <div class="av"></div>
+      <div><h1>Nora</h1><div class="s">Recepción de voz IA</div></div>
+      <div class="live"><span class="dot"></span> en línea
+        <select class="langsel" id="lang" title="Idioma del micrófono">
+          <option value="es-ES">ES</option><option value="ca-ES">VAL</option><option value="en-US">EN</option>
+          <option value="fr-FR">FR</option><option value="pt-PT">PT</option><option value="de-DE">DE</option>
+          <option value="it-IT">IT</option><option value="zh-CN">中文</option>
+        </select>
+      </div>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    <div class="bar">
+      <button class="mic" id="mic" title="Hablar">🎙️</button>
+      <input id="inp" placeholder="Escribe o pulsa el micro…" autocomplete="off">
+      <button class="send" id="send">Enviar</button>
+    </div>
+  </div>
+
+  <div class="card cart">
+    <div class="hd2">🧾 Pedido en vivo</div>
+    <div class="body" id="cart"><div class="empty">Aún no hay productos. Pídele algo a Nora…</div></div>
+    <div class="tag" id="status">Demo de Ktys &amp; Davids · habla con Nora como un cliente real.</div>
+  </div>
+</div>
+
+<script>
+const API = (window.NORA_API || "") + "/api/demo/chat";
+let sessionId = null;
+const msgs = document.getElementById("msgs");
+const cartEl = document.getElementById("cart");
+const statusEl = document.getElementById("status");
+
+function bubble(text, who){ const d=document.createElement("div"); d.className="m "+who; d.textContent=text; msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight; }
+
+function renderCart(cart){
+  if(!cart || !cart.items || !cart.items.length){ cartEl.innerHTML='<div class="empty">Aún no hay productos. Pídele algo a Nora…</div>'; return; }
+  cartEl.innerHTML="";
+  cart.items.forEach(t=>{ const i=t.lastIndexOf("—"); const d=document.createElement("div"); d.className="ci";
+    d.innerHTML=`<span>${i>0?t.slice(0,i):t}</span><span>${i>0?t.slice(i+1):""}</span>`; cartEl.appendChild(d); });
+  const tot=document.createElement("div"); tot.className="tot"; tot.innerHTML=`<span>Total${cart.type==='delivery'?' (a domicilio)':''}</span><b>${(cart.totalEur||0).toFixed(2)} €</b>`;
+  cartEl.appendChild(tot);
+}
+
+function speak(text){ try{ const u=new SpeechSynthesisUtterance(text); u.lang=document.getElementById("lang").value; speechSynthesis.speak(u);}catch(e){} }
+
+async function send(text){
+  if(!text.trim()) return;
+  bubble(text,"me");
+  try{
+    const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId,message:text})});
+    const data=await r.json(); sessionId=data.sessionId;
+    bubble(data.reply,"bot"); renderCart(data.cart); speak(data.reply);
+  }catch(e){ statusEl.textContent="⚠️ No conecto con el servidor de la demo. Despliega el backend y vuelve a probar."; }
+}
+
+document.getElementById("send").onclick=()=>{ const v=document.getElementById("inp").value; document.getElementById("inp").value=""; send(v); };
+document.getElementById("inp").addEventListener("keydown",e=>{ if(e.key==="Enter"){ document.getElementById("send").click(); }});
+
+// Voz (Web Speech API) — multilingüe según el selector
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const micBtn=document.getElementById("mic");
+if(SR){
+  const rec=new SR(); rec.continuous=false; rec.interimResults=false;
+  micBtn.onclick=()=>{ rec.lang=document.getElementById("lang").value; try{rec.start();micBtn.classList.add("on");}catch(e){} };
+  rec.onresult=e=>{ const t=e.results[0][0].transcript; send(t); };
+  rec.onend=()=>micBtn.classList.remove("on");
+}else{ micBtn.style.display="none"; }
+
+// Saludo inicial
+bubble("Pizzería Casa Nerea, soy Nora 👋 ¿Qué te pongo hoy? (Puedes escribir o hablar)","bot");
+</script>
+</body>
+</html>

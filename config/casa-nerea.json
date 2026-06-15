@@ -1,0 +1,192 @@
+{
+  "id": "casa-nerea",
+  "business": {
+    "name": "Pizzería Casa Nerea",
+    "sector": "pizzeria",
+    "city": "Gandia",
+    "phone": "+34960000000",
+    "currency": "EUR",
+    "languages": [
+      "es",
+      "ca",
+      "en",
+      "fr",
+      "pt",
+      "de",
+      "it",
+      "zh"
+    ],
+    "delivery": true,
+    "hours": "Lun-Dom 13:00-16:00 y 20:00-23:30"
+  },
+  "greeting": {
+    "es": "Pizzería Casa Nerea, soy Nora, ¿qué te pongo hoy?",
+    "default": "Pizzería Casa Nerea, soy Nora, ¿en qué te ayudo?"
+  },
+  "policies": {
+    "minOrderEur": 0,
+    "deliveryFeeEur": 0,
+    "paymentMethods": [
+      "efectivo",
+      "tarjeta",
+      "bizum"
+    ],
+    "asksForAddressWhenDelivery": true,
+    "supplementEur": 1.5
+  },
+  "_nota": "MENÚ DE EJEMPLO. Sustituir por la carta real de Casa Nerea (29 pizzas) recogida con el Formulario de Diagnóstico. Cada item debe llevar su glopProductId real una vez tengamos el mapeo de productos de Glop.",
+  "featured": [
+    "diavola",
+    "prosciutto"
+  ],
+  "_featured_nota": "Pizzas del día que Nora recomienda al inicio. De momento son las más caras; David indicará cuáles dan más margen. Si se deja vacío, Nora recomienda automáticamente las 2 más caras de la categoría de pizzas.",
+  "kitchen": {
+    "_nota": "Tiempos dinámicos según carga de cocina. Nora sube el tiempo cuando se vende mucho en poco rato.",
+    "basePickupMin": 20,
+    "baseDeliveryMin": 35,
+    "windowMin": 10,
+    "capacityPerWindow": 8,
+    "minutesPerExtraUnit": 1.5,
+    "stepMin": 5,
+    "maxPickupMin": 60,
+    "maxDeliveryMin": 80
+  },
+  "sizes": [
+    {
+      "id": "mediana",
+      "name": {
+        "es": "Mediana",
+        "default": "Medium"
+      },
+      "priceFactor": 1
+    },
+    {
+      "id": "familiar",
+      "name": {
+        "es": "Familiar (41 cm)",
+        "default": "Family (41 cm)"
+      },
+      "priceFactor": 1.45
+    }
+  ],
+  "extras": [
+    {
+      "id": "extra",
+      "name": {
+        "es": "Ingrediente extra",
+        "default": "Extra topping"
+      },
+      "priceEur": 1.5
+    }
+  ],
+  "menu": [
+    {
+      "id": "pizzas",
+      "name": {
+        "es": "Pizzas artesanas",
+        "en": "Artisan pizzas",
+        "default": "Pizzas"
+      },
+      "items": [
+        {
+          "id": "margarita",
+          "name": {
+            "es": "Margarita",
+            "default": "Margherita"
+          },
+          "priceEur": 8.5,
+          "glopProductId": "TODO_GLOP_ID",
+          "ingredients": "tomate, mozzarella, albahaca"
+        },
+        {
+          "id": "cuatro-quesos",
+          "name": {
+            "es": "Cuatro Quesos",
+            "en": "Four Cheese",
+            "default": "Four Cheese"
+          },
+          "priceEur": 10.5,
+          "glopProductId": "TODO_GLOP_ID"
+        },
+        {
+          "id": "prosciutto",
+          "name": {
+            "es": "Prosciutto",
+            "default": "Prosciutto"
+          },
+          "priceEur": 11,
+          "glopProductId": "TODO_GLOP_ID"
+        },
+        {
+          "id": "diavola",
+          "name": {
+            "es": "Diávola (picante)",
+            "en": "Diavola (spicy)",
+            "default": "Diavola"
+          },
+          "priceEur": 11,
+          "glopProductId": "TODO_GLOP_ID"
+        }
+      ]
+    },
+    {
+      "id": "bebidas",
+      "name": {
+        "es": "Bebidas",
+        "en": "Drinks",
+        "default": "Drinks"
+      },
+      "items": [
+        {
+          "id": "agua",
+          "name": {
+            "es": "Agua",
+            "default": "Water"
+          },
+          "priceEur": 1.5,
+          "glopProductId": "TODO_GLOP_ID"
+        },
+        {
+          "id": "refresco",
+          "name": {
+            "es": "Refresco",
+            "en": "Soft drink",
+            "default": "Soft drink"
+          },
+          "priceEur": 2.2,
+          "glopProductId": "TODO_GLOP_ID"
+        }
+      ]
+    },
+    {
+      "id": "postres",
+      "name": {
+        "es": "Postres",
+        "en": "Desserts",
+        "default": "Desserts"
+      },
+      "items": [
+        {
+          "id": "tiramisu",
+          "name": {
+            "es": "Tiramisú casero",
+            "en": "Homemade tiramisu",
+            "default": "Tiramisu"
+          },
+          "priceEur": 4.5,
+          "glopProductId": "TODO_GLOP_ID"
+        },
+        {
+          "id": "tarta-queso",
+          "name": {
+            "es": "Tarta de queso",
+            "en": "Cheesecake",
+            "default": "Cheesecake"
+          },
+          "priceEur": 4.2,
+          "glopProductId": "TODO_GLOP_ID"
+        }
+      ]
+    }
+  ]
+}

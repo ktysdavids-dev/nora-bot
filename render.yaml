@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: nora-bot
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: GLOP_ENABLED
+        value: "false"
+      - key: GLOP_API_BASE
+        value: https://api.glop.es
+      - key: GLOP_CLIENT_ID
+        value: a1fb4b67-be82-4fff-9106-ee38f7134f71
+      - key: GLOP_SECRET
+        sync: false
+      - key: GLOP_USER_ID
+        value: "18016"
+      - key: ADMIN_TOKEN
+        value: kd-master-2026-PONUNALARGOYUNICO
+      - key: CLIENT_TOKEN
+        value: nerea-cliente-2026-OTRODISTINTO
+      - key: BOT_VERSION
+        value: 1.0.0
