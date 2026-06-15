@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { loadBusiness } from "./menu.js";
 import { Order } from "./order.js";
 import { buildAgent } from "./agent.js";
-import { demoTurn } from "./demo.js";
+// import { demoTurn } from "./demo.js";  (demo desactivada)
 import { registerToolWebhooks } from "./webhooks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -78,24 +78,7 @@ app.register(async (f) => {
 
 // ---------- (B) DEMO DE VENTA ----------
 // Sesiones en memoria: cada navegador mantiene su carrito por sessionId.
-const demoSessions = new Map();
-
-app.post("/api/demo/chat", async (req) => {
-  const { sessionId = randomUUID(), message } = req.body || {};
-  let s = demoSessions.get(sessionId);
-  if (!s) { s = { history: [], order: new Order(cfg, { lang: "es" }) }; demoSessions.set(sessionId, s); }
-  s.history.push({ role: "user", content: String(message || "") });
-  const { reply, cart } = await demoTurn(cfg, s.history, s.order);
-  s.history.push({ role: "assistant", content: reply });
-  if (s.history.length > 40) s.history = s.history.slice(-40);
-  return { sessionId, reply, cart };
-});
-
-app.post("/api/demo/reset", async (req) => {
-  const { sessionId } = req.body || {};
-  if (sessionId) demoSessions.delete(sessionId);
-  return { ok: true };
-});
+// const demoSessions = new Map();
 
 app.get("/api/menu", async () => ({ business: cfg.business, menu: cfg.menu, sizes: cfg.sizes, extras: cfg.extras }));
 
