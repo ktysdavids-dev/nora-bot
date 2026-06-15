@@ -30,15 +30,25 @@ export function localized(nameObj, lang) {
 
 // Devuelve la carta en texto compacto para inyectar en el prompt del modelo.
 export function menuForPrompt(cfg, lang = "es") {
+  const sizes = cfg.sizes || [];
+  const multiSize = sizes.length > 1;
   const lines = [];
   for (const cat of cfg.menu) {
     lines.push(`# ${localized(cat.name, lang)}`);
+    // Solo las categorías con "sized": true (p. ej. pizzas) muestran precio por tamaño.
+    const isSized = multiSize && cat.sized === true;
     for (const it of cat.items) {
-      lines.push(`- [${it.id}] ${localized(it.name, lang)} — ${it.priceEur.toFixed(2)} €${it.ingredients ? ` (${it.ingredients})` : ""}`);
+      const ing = it.ingredients ? ` (${it.ingredients})` : "";
+      if (isSized) {
+        const priced = sizes
+          .map((s) => `${localized(s.name, lang)} [${s.id}] ${(it.priceEur * s.priceFactor).toFixed(2)} €`)
+          .join(" / ");
+        lines.push(`- [${it.id}] ${localized(it.name, lang)} — ${priced}${ing}`);
+      } else {
+        lines.push(`- [${it.id}] ${localized(it.name, lang)} — ${it.priceEur.toFixed(2)} €${ing}`);
+      }
     }
   }
-  const sizes = (cfg.sizes || []).map((s) => `${localized(s.name, lang)} x${s.priceFactor}`).join(", ");
-  if (sizes) lines.push(`\nTamaños: ${sizes}`);
   if (cfg.extras?.length) lines.push(`Extras: ${cfg.extras.map((e) => `${localized(e.name, lang)} +${e.priceEur} €`).join(", ")}`);
   return lines.join("\n");
 }
