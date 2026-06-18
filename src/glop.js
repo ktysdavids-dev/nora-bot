@@ -1,45 +1,43 @@
 // glop.js — Adaptador de integración con el TPV Glop (API Cloud).
 //
-// Documentación: https://apidoc.glop.es/  (interactiva, Stoplight).
-// Endpoint de envío de pedidos: "Recibir pedidos"
-//   https://apidoc.glop.es/docs/glop-api-rest/2c5aab48ef9dd-recibir-pedidos
-//   - Soporta pedidos en mesa con el parámetro id_mesa (añade productos al ticket).
+// VERIFICADO EN VIVO (18/06/2026) contra el TPV de Pizzería Casa Nerea:
+//   - Token:        POST /api/v1/auth/oauth/token (grant_type=client_credentials) -> 200 OK
+//   - Terminal:     GET  /api/v1/cloud/terminals -> terminal_id "1", warehouse_id "1"
+//   - Envío pedido: POST /api/v1/delivery/orders con id_mesa "1" -> 200 OK (aceptado)
 //
-// CREDENCIALES (las entrega Glop; van SOLO en variables de entorno del servidor,
-// nunca en el frontend ni en GitHub):
-//   GLOP_CLIENT_ID  -> "id"
-//   GLOP_SECRET     -> "secret"
-//   GLOP_USER_ID    -> "user_id"
-//   GLOP_API_BASE   -> base de la API (confirmar en apidoc.glop.es)
-//
-// PATRÓN DE SEGURIDAD:
-//   GLOP_ENABLED=false -> NO envía nada; registra y devuelve un mock (para probar el flujo).
-//   GLOP_ENABLED=true  -> Envía la comanda real a Glop.
+// Lee las variables de entorno con los nombres que YA hay en Railway (español)
+// y también acepta los nombres en inglés, por compatibilidad:
+//   GLOP_HABILITADO / GLOP_ENABLED   -> "true" o "verdadero" para enviar de verdad
+//   BASE_API_GLOP   / GLOP_API_BASE  -> https://api.glop.es
+//   ID_CLIENTE_GLOP / GLOP_CLIENT_ID -> client_id
+//   GLOP_SECRETO    / GLOP_SECRET    -> client_secret  (FALTA en Railway: hay que añadirlo)
+//   GLOP_MESA                        -> mesa donde aparcar el pedido (p.ej. "1")
 
-const GLOP_ENABLED   = process.env.GLOP_ENABLED === "true";
-const GLOP_API_BASE  = process.env.GLOP_API_BASE  || ""; // p.ej. https://api.glop.es  (CONFIRMAR en docs)
-const GLOP_CLIENT_ID = process.env.GLOP_CLIENT_ID || "";
-const GLOP_SECRET    = process.env.GLOP_SECRET    || "";
-const GLOP_USER_ID   = process.env.GLOP_USER_ID   || "";
+const env = process.env;
+const truthy = (v) => v === "true" || v === "verdadero" || v === "TRUE";
 
-// --- Autenticación -----------------------------------------------------------
-// Patrón habitual: intercambiar id + secret por un token de acceso temporal.
-// CONFIRMAR en la doc la ruta y el formato exactos (campo "Autenticación").
+const GLOP_ENABLED   = truthy(env.GLOP_HABILITADO || env.GLOP_ENABLED);
+const GLOP_API_BASE  = env.BASE_API_GLOP   || env.GLOP_API_BASE   || "https://api.glop.es";
+const GLOP_CLIENT_ID = env.ID_CLIENTE_GLOP || env.GLOP_CLIENT_ID  || "";
+const GLOP_SECRET    = env.GLOP_SECRETO    || env.GLOP_SECRET     || "";
+const GLOP_MESA      = env.GLOP_MESA       || "1";
+
+// --- Autenticación (VERIFICADA) ---------------------------------------------
 let _token = null;
 let _tokenExp = 0;
 
 async function getAccessToken() {
   const now = Date.now();
-  if (_token && now < _tokenExp - 30_000) return _token; // cache con margen
+  if (_token && now < _tokenExp - 30000) return _token;
 
-  const url = `${GLOP_API_BASE}/auth/token`; // <-- CONFIRMAR ruta real en apidoc.glop.es
-  const res = await fetch(url, {
+  const res = await fetch(`${GLOP_API_BASE}/api/v1/auth/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      id: GLOP_CLIENT_ID,
-      secret: GLOP_SECRET,
-      user_id: Number(GLOP_USER_ID),
+      grant_type: "client_credentials",
+      client_id: GLOP_CLIENT_ID,
+      client_secret: GLOP_SECRET,
+      scope: "",
     }),
   });
   if (!res.ok) {
@@ -47,59 +45,83 @@ async function getAccessToken() {
     throw new Error(`Glop auth ${res.status}: ${t}`);
   }
   const data = await res.json();
-  _token = data.access_token ?? data.token ?? data.accessToken; // <-- CONFIRMAR nombre del campo
-  const ttl = (data.expires_in ?? 3600) * 1000;
-  _tokenExp = now + ttl;
+  _token = data.access_token;
+  _tokenExp = now + (data.expires_in ?? 3600) * 1000;
   return _token;
 }
 
-// --- Crear comanda ("Recibir pedidos") --------------------------------------
+// Euros -> céntimos enteros. Pasa SIEMPRE euros (12.5 -> 1250).
+function toCents(value) {
+  if (value == null) return 0;
+  return Math.round(Number(value) * 100);
+}
+
+// --- Crear comanda en Glop ("Recibir pedidos") ------------------------------
 export async function createComanda(comanda) {
+  const payload = mapToGlopPayload(comanda);
+
   if (!GLOP_ENABLED) {
-    console.log("[GLOP] (modo desactivado) comanda simulada:\n", JSON.stringify(comanda, null, 2));
+    console.log("[GLOP] (desactivado) pedido simulado:\n", JSON.stringify(payload, null, 2));
     return { ok: true, simulated: true, glopOrderId: `MOCK-${Date.now()}` };
   }
 
   const token = await getAccessToken();
-  const endpoint = `${GLOP_API_BASE}/orders`; // <-- CONFIRMAR ruta de "Recibir pedidos" en docs
-  const payload = mapToGlopPayload(comanda);
-
-  const res = await fetch(endpoint, {
+  const res = await fetch(`${GLOP_API_BASE}/api/v1/delivery/orders`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`, // <-- CONFIRMAR esquema (Bearer / x-api-key…)
+      "Accept": "application/json",
+      "Authorization": `Bearer ${token}`,
     },
     body: JSON.stringify(payload),
   });
-
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Glop API ${res.status}: ${text}`);
   }
-  const data = await res.json();
-  return { ok: true, simulated: false, glopOrderId: data.id ?? data.orderId ?? null, raw: data };
+  const data = await res.json().catch(() => ([]));
+  return { ok: true, simulated: false, raw: data };
 }
 
-// Traduce nuestra comanda neutra al cuerpo que espera Glop.
-// NOTA: nombres de campos PROVISIONALES — ajustar al esquema real de "Recibir pedidos".
+// Traduce la comanda de Nora al cuerpo real que espera Glop.
+// comanda.lines[]: { glopProductId, name, priceEuros, qty, extras:[{glopProductId,name,priceEuros,qty}] }
 function mapToGlopPayload(c) {
+  const items = (c.lines || []).map((l) => {
+    const item = {
+      plu: l.glopProductId,
+      name: l.name || "",
+      price: toCents(l.priceEuros),
+      quantity: l.qty ?? 1,
+      productType: 1,
+    };
+    if (l.extras && l.extras.length) {
+      item.subItems = l.extras.map((e) => ({
+        plu: e.glopProductId,
+        name: e.name || "",
+        price: toCents(e.priceEuros),
+        quantity: e.qty ?? 1,
+      }));
+    }
+    if (l.notes) item.observation = l.notes;
+    return item;
+  });
+
+  const totalCents = items.reduce((sum, it) => {
+    const subs = (it.subItems || []).reduce((s, x) => s + (x.price || 0) * (x.quantity || 1), 0);
+    return sum + (it.price || 0) * (it.quantity || 1) + subs;
+  }, 0);
+
   return {
-    user_id: Number(GLOP_USER_ID),
-    // id_mesa: c.tableId,            // <-- solo para pedidos en mesa (añade al ticket)
-    type: c.type === "delivery" ? "DELIVERY" : "PICKUP",
-    source: "nora-voice-ia",
+    id_mesa: String(GLOP_MESA),
+    orderType: 2,
+    orderIsAlreadyPaid: false,
+    discountTotal: 0,
+    payment: { amount: totalCents },
     customer: {
-      name: c.customer?.name || "",
-      phone: c.customer?.phone || "",
-      address: c.customer?.address || "",
+      name: c.customer?.name || "Cliente",
+      phoneNumber: c.customer?.phone || "",
     },
-    notes: c.customer?.notes || "",
-    lines: c.lines.map((l) => ({
-      productId: l.glopProductId, // <-- requiere mapeo real de productos de Glop
-      quantity: l.qty,
-      modifiers: l.modifiers,
-      notes: l.notes,
-    })),
+    clientComments: c.customer?.notes || "",
+    items,
   };
 }
