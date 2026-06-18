@@ -4,9 +4,18 @@
     "name": "Pizzería Casa Nerea",
     "sector": "pizzeria",
     "city": "Gandia",
-    "phone": "+34960000000",
+    "phone": "+34962148100",
     "currency": "EUR",
-    "languages": ["es", "ca", "en", "fr", "pt", "de", "it", "zh"],
+    "languages": [
+      "es",
+      "ca",
+      "en",
+      "fr",
+      "pt",
+      "de",
+      "it",
+      "zh"
+    ],
     "delivery": true,
     "hours": "Lun-Dom 13:00-16:00 y 20:00-23:30"
   },
@@ -17,11 +26,18 @@
   "policies": {
     "minOrderEur": 0,
     "deliveryFeeEur": 0,
-    "paymentMethods": ["efectivo", "tarjeta", "bizum"],
+    "paymentMethods": [
+      "efectivo",
+      "tarjeta"
+    ],
     "asksForAddressWhenDelivery": true,
     "supplementEur": 1.5
   },
-  "featured": ["diavola", "prosciutto"],
+  "featured": [
+    "margarita",
+    "carbonara",
+    "barbacoa"
+  ],
   "kitchen": {
     "basePickupMin": 20,
     "baseDeliveryMin": 35,
@@ -33,38 +49,326 @@
     "maxDeliveryMin": 80
   },
   "sizes": [
-    { "id": "mediana", "name": { "es": "Mediana", "default": "Medium" }, "priceFactor": 1 },
-    { "id": "familiar", "name": { "es": "Familiar (41 cm)", "default": "Family (41 cm)" }, "priceFactor": 1.45 }
+    {
+      "id": "familiar",
+      "name": {
+        "es": "Familiar (41 cm)",
+        "default": "Family (41 cm)"
+      },
+      "priceFactor": 1
+    }
   ],
+  "_nota_tamanos": "Hoy solo FAMILIAR (precio real de carta). MEDIANA = 9,00 EUR plana: pendiente de retoque en menu.js (el multiplicador x1.45 no aplica). Pizza personalizada 'a tu gusto' base 9 EUR + 1,50/ingrediente: pendiente de alta y codigo.",
   "extras": [
-    { "id": "extra", "name": { "es": "Ingrediente extra", "default": "Extra topping" }, "priceEur": 1.5 }
+    {
+      "id": "extra",
+      "name": {
+        "es": "Ingrediente extra",
+        "default": "Extra topping"
+      },
+      "priceEur": 1.5
+    }
   ],
   "menu": [
     {
       "id": "pizzas",
-      "sized": true,
-      "name": { "es": "Pizzas artesanas", "en": "Artisan pizzas", "default": "Pizzas" },
+      "sized": false,
+      "name": {
+        "es": "Pizzas artesanas al horno de leña",
+        "en": "Wood-fired artisan pizzas",
+        "default": "Pizzas"
+      },
       "items": [
-        { "id": "margarita", "name": { "es": "Margarita", "default": "Margherita" }, "priceEur": 8.5, "glopProductId": "TODO_GLOP_ID", "ingredients": "tomate, mozzarella, albahaca" },
-        { "id": "cuatro-quesos", "name": { "es": "Cuatro Quesos", "en": "Four Cheese", "default": "Four Cheese" }, "priceEur": 10.5, "glopProductId": "TODO_GLOP_ID" },
-        { "id": "prosciutto", "name": { "es": "Prosciutto", "default": "Prosciutto" }, "priceEur": 11, "glopProductId": "TODO_GLOP_ID" },
-        { "id": "diavola", "name": { "es": "Diávola (picante)", "en": "Diavola (spicy)", "default": "Diavola" }, "priceEur": 11, "glopProductId": "TODO_GLOP_ID" }
-      ]
-    },
-    {
-      "id": "bebidas",
-      "name": { "es": "Bebidas", "en": "Drinks", "default": "Drinks" },
-      "items": [
-        { "id": "agua", "name": { "es": "Agua", "default": "Water" }, "priceEur": 1.5, "glopProductId": "TODO_GLOP_ID" },
-        { "id": "refresco", "name": { "es": "Refresco", "en": "Soft drink", "default": "Soft drink" }, "priceEur": 2.2, "glopProductId": "TODO_GLOP_ID" }
-      ]
-    },
-    {
-      "id": "postres",
-      "name": { "es": "Postres", "en": "Desserts", "default": "Desserts" },
-      "items": [
-        { "id": "tiramisu", "name": { "es": "Tiramisú casero", "en": "Homemade tiramisu", "default": "Tiramisu" }, "priceEur": 4.5, "glopProductId": "TODO_GLOP_ID" },
-        { "id": "tarta-queso", "name": { "es": "Tarta de queso", "en": "Cheesecake", "default": "Cheesecake" }, "priceEur": 4.2, "glopProductId": "TODO_GLOP_ID" }
+        {
+          "id": "margarita",
+          "name": {
+            "es": "Margarita",
+            "default": "Margarita"
+          },
+          "priceEur": 12.5,
+          "glopProductId": "204141718",
+          "ingredients": "tomate, queso"
+        },
+        {
+          "id": "nerea",
+          "name": {
+            "es": "Nerea",
+            "default": "Nerea"
+          },
+          "priceEur": 14.4,
+          "glopProductId": "204141762",
+          "ingredients": "tomate, queso, cebolla, pimiento rojo, jamon york, champinones, chorizo picante"
+        },
+        {
+          "id": "cabra",
+          "name": {
+            "es": "Cabra",
+            "default": "Cabra"
+          },
+          "priceEur": 14.4,
+          "glopProductId": "204141797",
+          "ingredients": "tomate, bacon, queso de cabra, frutos secos"
+        },
+        {
+          "id": "carbonara",
+          "name": {
+            "es": "Carbonara",
+            "default": "Carbonara"
+          },
+          "priceEur": 14.4,
+          "glopProductId": "204141809",
+          "ingredients": "queso, nata, cebolla, champinones, bacon y huevo"
+        },
+        {
+          "id": "peperoni",
+          "name": {
+            "es": "Peperoni",
+            "default": "Peperoni"
+          },
+          "priceEur": 13.5,
+          "glopProductId": "204204155",
+          "ingredients": "tomate, queso, chorizo picante"
+        },
+        {
+          "id": "neptuna",
+          "name": {
+            "es": "Neptuna",
+            "default": "Neptuna"
+          },
+          "priceEur": 13.5,
+          "glopProductId": "204141933",
+          "ingredients": "tomate, queso y atun"
+        },
+        {
+          "id": "borromea",
+          "name": {
+            "es": "Borromea",
+            "default": "Borromea"
+          },
+          "priceEur": 13.5,
+          "glopProductId": "204141957",
+          "ingredients": "tomate, queso y jamon york"
+        },
+        {
+          "id": "calzon-bacon",
+          "name": {
+            "es": "Calzon de Bacon",
+            "default": "Calzon de Bacon"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204141971",
+          "ingredients": "bacon, tomate, queso, cebolla, huevo"
+        },
+        {
+          "id": "frankfurt",
+          "name": {
+            "es": "Frankfurt",
+            "default": "Frankfurt"
+          },
+          "priceEur": 13.5,
+          "glopProductId": "204205014",
+          "ingredients": "tomate, queso y salchicha de Frankfurt"
+        },
+        {
+          "id": "samoa",
+          "name": {
+            "es": "Samoa",
+            "default": "Samoa"
+          },
+          "priceEur": 13.5,
+          "glopProductId": "204142027",
+          "ingredients": "nata, queso y jamon york"
+        },
+        {
+          "id": "napolitana",
+          "name": {
+            "es": "Napolitana",
+            "default": "Napolitana"
+          },
+          "priceEur": 13.5,
+          "glopProductId": "204142045",
+          "ingredients": "tomate, queso, anchoas y aceitunas"
+        },
+        {
+          "id": "reina",
+          "name": {
+            "es": "Reina",
+            "default": "Reina"
+          },
+          "priceEur": 13.5,
+          "glopProductId": "204142064",
+          "ingredients": "tomate, queso, jamon york y champinones"
+        },
+        {
+          "id": "cuatro-quesos",
+          "name": {
+            "es": "Cuatro Quesos",
+            "default": "Cuatro Quesos"
+          },
+          "priceEur": 13.5,
+          "glopProductId": "204142072",
+          "ingredients": "tomate y quesos variados: roquefort, brie, emmental y edam"
+        },
+        {
+          "id": "serrano",
+          "name": {
+            "es": "Serrano",
+            "default": "Serrano"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142094",
+          "ingredients": "tomate, queso y jamon serrano"
+        },
+        {
+          "id": "tropical",
+          "name": {
+            "es": "Tropical",
+            "default": "Tropical"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142108",
+          "ingredients": "tomate, queso, pollo y pina"
+        },
+        {
+          "id": "campesina",
+          "name": {
+            "es": "Campesina",
+            "default": "Campesina"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142138",
+          "ingredients": "tomate, queso, cebolla, bacon, maiz, champinon"
+        },
+        {
+          "id": "vegetariana",
+          "name": {
+            "es": "Vegetariana",
+            "default": "Vegetariana"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142147",
+          "ingredients": "tomate, queso y espencat: pimientos, berenjenas y ajos"
+        },
+        {
+          "id": "cuatro-estaciones",
+          "name": {
+            "es": "Cuatro Estaciones",
+            "default": "Cuatro Estaciones"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142170",
+          "ingredients": "tomate, queso, alcachofa, jamon york, salami y champinones frescos"
+        },
+        {
+          "id": "brava-tomate",
+          "name": {
+            "es": "Brava Tomate",
+            "default": "Brava Tomate"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142193",
+          "ingredients": "tomate, queso, chorizo picante, guindillas y maiz"
+        },
+        {
+          "id": "carbonara-tomate",
+          "name": {
+            "es": "Carbonara Tomate",
+            "default": "Carbonara Tomate"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142211",
+          "ingredients": "tomate, queso, bacon, cebolla y huevo"
+        },
+        {
+          "id": "san-pere",
+          "name": {
+            "es": "San Pere",
+            "default": "San Pere"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142232",
+          "ingredients": "tomate, queso, atun, cebolla, jamon york, huevo, aceitunas"
+        },
+        {
+          "id": "blanco-y-negro",
+          "name": {
+            "es": "Blanco y Negro",
+            "default": "Blanco y Negro"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142241",
+          "ingredients": "tomate, queso, morcilla, longaniza y huevo"
+        },
+        {
+          "id": "salmon",
+          "name": {
+            "es": "Salmon",
+            "default": "Salmon"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204204421",
+          "ingredients": "tomate, queso y salmon ahumado"
+        },
+        {
+          "id": "calzone-samuel",
+          "name": {
+            "es": "Calzone del Samuel",
+            "default": "Calzone del Samuel"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142281",
+          "ingredients": "tomate, queso, atun, huevo, cebolla, jamon york"
+        },
+        {
+          "id": "del-chef",
+          "name": {
+            "es": "Del Chef",
+            "default": "Del Chef"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142299",
+          "ingredients": "tomate, queso, anchoas, gambas y salmon ahumado"
+        },
+        {
+          "id": "canibal",
+          "name": {
+            "es": "Canibal",
+            "default": "Canibal"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142315",
+          "ingredients": "tomate, queso, huevo y carne picada"
+        },
+        {
+          "id": "barbacoa",
+          "name": {
+            "es": "Barbacoa",
+            "default": "Barbacoa"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142323",
+          "ingredients": "salsa barbacoa, queso, carne picada y bacon"
+        },
+        {
+          "id": "frutos-del-mar",
+          "name": {
+            "es": "Frutos del Mar",
+            "default": "Frutos del Mar"
+          },
+          "priceEur": 14.0,
+          "glopProductId": "204142342",
+          "ingredients": "tomate, queso, anchoas, gambas, mejillones y berberecho"
+        },
+        {
+          "id": "safor",
+          "name": {
+            "es": "Safor",
+            "default": "Safor"
+          },
+          "priceEur": 15.5,
+          "glopProductId": "204142361",
+          "ingredients": "cebolla, champinon, jamon york, tomate fresco, nata, pimiento verde"
+        }
       ]
     }
   ]
