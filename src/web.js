@@ -1,190 +1,166 @@
-// glop.js — Adaptador de integración con el TPV Glop (API Cloud).
+// web.js — Conector de Nora al plugin web de Casa Nerea (WooCommerce → Glop).
+// Ruta TEMPORAL mientras Glop no entrega location/account de la API directa.
 //
-// ENRUTADOR: si NEREA_WEB_ENABLED=true, el pedido sale por el plugin web de
-// Casa Nerea (web.js: WooCommerce -> Glop). Si no, por la API directa de Glop.
-// La vía web es TEMPORAL hasta que Glop entregue location/account.
+// Flujo: Nora -> POST /wp-json/nerea-voice/v1/crear-pedido -> WooCommerce -> Glop TPV.
+// El plugin identifica productos por product_id de WooCommerce y pone SU precio.
+// Este módulo descarga /menu del plugin y traduce los platos de Nora por nombre.
 //
-// Payload API directa ALINEADO con la documentación oficial (apidoc.glop.es):
-//   - Token:        POST /api/v1/auth/oauth/token  (OJO: la doc lista /api/v1/oauth/token; ver nota abajo)
-//   - Envío pedido: POST /api/v1/delivery/orders
-//
-// Variables de entorno (acepta nombres en español -de Railway- y en inglés):
-//   GLOP_HABILITADO / GLOP_ENABLED   -> "true"/"verdadero" para enviar de verdad
-//   BASE_API_GLOP   / GLOP_API_BASE  -> https://api.glop.es
-//   ID_CLIENTE_GLOP / GLOP_CLIENT_ID -> client_id
-//   GLOP_SECRETO    / GLOP_SECRET    -> client_secret
-//   GLOP_LOCATION    -> Identificador de localización. LO DA GLOP. Obligatorio para envío real.
-//   GLOP_ACCOUNT     -> Campo "account" del pedido. Confirmar valor con Glop. Obligatorio para envío real.
-//   GLOP_CHANNEL_SLUG-> Nombre único del canal (por defecto "nora").
-//   GLOP_MESA        -> mesa donde aparcar el pedido (p.ej. "1"). Vacío/"delivery"/"0" = reparto sin id_mesa.
-
-import { WEB_ENABLED, createComandaWeb } from "./web.js";
+// Variables de entorno (Railway):
+//   NEREA_WEB_ENABLED  -> "true" para enviar por la web
+//   NEREA_WEB_BASE     -> https://lacasadenerea.es (por defecto)
+//   NEREA_WEB_TOKEN    -> Token API del plugin (cabecera X-Nerea-Voice-Token)
+//   NEREA_WEB_OVERRIDES-> Opcional. JSON {"nombre normalizado":product_id} para
+//                         forzar mapeos que no casen solos.
+//                         Ej: {"cuatro quesos familiar": 512}
 
 const env = process.env;
 const truthy = (v) => v === "true" || v === "verdadero" || v === "TRUE";
 
-const GLOP_ENABLED      = truthy(env.GLOP_HABILITADO || env.GLOP_ENABLED);
-const GLOP_API_BASE     = env.BASE_API_GLOP   || env.GLOP_API_BASE   || "https://api.glop.es";
-const GLOP_CLIENT_ID    = env.ID_CLIENTE_GLOP || env.GLOP_CLIENT_ID  || "";
-const GLOP_SECRET       = env.GLOP_SECRETO    || env.GLOP_SECRET     || "";
-const GLOP_LOCATION     = (env.GLOP_LOCATION || "").trim();
-const GLOP_ACCOUNT      = (env.GLOP_ACCOUNT  || "").trim();
-const GLOP_CHANNEL_SLUG = (env.GLOP_CHANNEL_SLUG || "nora").trim();
-const GLOP_MESA         = (env.GLOP_MESA ?? "1").trim();
-const USAR_MESA         = GLOP_MESA !== "" && GLOP_MESA.toLowerCase() !== "delivery" && GLOP_MESA !== "0";
+export const WEB_ENABLED = truthy(env.NEREA_WEB_ENABLED);
+const WEB_BASE  = (env.NEREA_WEB_BASE || "https://lacasadenerea.es").replace(/\/$/, "");
+const WEB_TOKEN = (env.NEREA_WEB_TOKEN || "").trim();
 
-// --- Autenticación ----------------------------------------------------------
-let _token = null;
-let _tokenExp = 0;
+let OVERRIDES = {};
+try { OVERRIDES = env.NEREA_WEB_OVERRIDES ? JSON.parse(env.NEREA_WEB_OVERRIDES) : {}; }
+catch { console.error("[WEB] NEREA_WEB_OVERRIDES no es JSON válido; se ignora."); }
 
-async function getAccessToken() {
+// --- Normalización de nombres para el mapeo ---------------------------------
+// "Pizza Cuatro Quesos (Familiar)" -> "cuatro quesos familiar"
+export function normalizeName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // sin acentos
+    .replace(/[()\[\].,;:!¡¿?"']/g, " ")
+    .replace(/\b(pizza|pizzas|media luna|medialuna)\b/g, (m) => m === "media luna" || m === "medialuna" ? "mediana" : "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// --- Menú del plugin (cache 10 min) -----------------------------------------
+let _menuMap = null;   // { nombreNormalizado: product_id }
+let _menuRaw = [];     // por si hay que loguear candidatos
+let _menuExp = 0;
+
+async function loadWebMenu() {
   const now = Date.now();
-  if (_token && now < _tokenExp - 30000) return _token;
+  if (_menuMap && now < _menuExp) return _menuMap;
 
-  // NOTA: la doc oficial lista el token en /api/v1/oauth/token (sin "auth").
-  // Mantengo /api/v1/auth/oauth/token porque venía marcado como verificado.
-  // Si el login falla con 404 en la prueba, cambiar a /api/v1/oauth/token.
-  const res = await fetch(`${GLOP_API_BASE}/api/v1/auth/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "client_credentials",
-      client_id: GLOP_CLIENT_ID,
-      client_secret: GLOP_SECRET,
-      scope: "",
-    }),
+  const res = await fetch(`${WEB_BASE}/wp-json/nerea-voice/v1/menu`, {
+    headers: WEB_TOKEN ? { "X-Nerea-Voice-Token": WEB_TOKEN } : {},
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    throw new Error(`Glop auth ${res.status}: ${t}`);
+    throw new Error(`[WEB] /menu ${res.status}: ${t.slice(0, 300)}`);
   }
   const data = await res.json();
-  _token = data.access_token;
-  _tokenExp = now + (data.expires_in ?? 3600) * 1000;
-  return _token;
+
+  // Tolerante con la forma: puede ser array plano o {products:[...]}/{items:[...]}/{menu:[...]}
+  const list = Array.isArray(data) ? data
+             : Array.isArray(data.products) ? data.products
+             : Array.isArray(data.items)    ? data.items
+             : Array.isArray(data.menu)     ? data.menu
+             : [];
+
+  const map = {};
+  const raw = [];
+  for (const p of list) {
+    const id   = p.product_id ?? p.id ?? p.ID;
+    const name = p.name ?? p.title ?? p.nombre ?? "";
+    if (!id || !name) continue;
+    map[normalizeName(name)] = Number(id);
+    raw.push({ id: Number(id), name });
+    // Variaciones (tamaños) si el plugin las expone
+    const vars = p.variations || p.variantes || [];
+    for (const v of vars) {
+      const vid = v.product_id ?? v.id ?? v.variation_id;
+      const vname = `${name} ${v.name ?? v.attributes ?? v.size ?? ""}`;
+      if (vid) { map[normalizeName(vname)] = Number(vid); raw.push({ id: Number(vid), name: vname }); }
+    }
+  }
+
+  if (!raw.length) throw new Error("[WEB] /menu respondió sin productos reconocibles.");
+  _menuMap = map; _menuRaw = raw; _menuExp = now + 10 * 60 * 1000;
+  console.log(`[WEB] menú cargado: ${raw.length} productos.`);
+  return map;
 }
 
-function toCents(value) {
-  if (value == null) return 0;
-  return Math.round(Number(value) * 100);
+// Resuelve el product_id de una línea de Nora por nombre (+ tamaño si existe).
+async function resolveProductId(line) {
+  const map = await loadWebMenu();
+  const base = line.name || line.description || "";
+  const size = line.sizeName || line.size || line.sizeId || "";
+  const candidates = [
+    normalizeName(`${base} ${size}`),
+    normalizeName(base),
+  ];
+  for (const key of candidates) {
+    if (OVERRIDES[key]) return Number(OVERRIDES[key]);
+    if (map[key]) return map[key];
+  }
+  // Búsqueda laxa: el nombre de Nora contenido en un nombre del menú web
+  const target = normalizeName(base);
+  const hit = _menuRaw.find((p) => normalizeName(p.name).includes(target) && target.length >= 4);
+  if (hit) return hit.id;
+
+  console.error(`[WEB] SIN MAPEO para "${base}" (tamaño "${size}"). Productos web disponibles:`,
+    _menuRaw.map((p) => `${p.id}=${p.name}`).join(" | "));
+  throw new Error(`[WEB] No encuentro product_id para "${base}${size ? " " + size : ""}". Añádelo en NEREA_WEB_OVERRIDES.`);
 }
 
-// --- Crear comanda ------------------------------------------------------------
-// Acepta directamente la salida de order.toComanda().
-// ENRUTADOR: web (temporal) o API directa de Glop.
-export async function createComanda(comanda) {
-  if (WEB_ENABLED) {
-    console.log("[GLOP] enrutando pedido por la VÍA WEB (plugin WooCommerce).");
-    return createComandaWeb(comanda);
+// --- Crear pedido vía plugin web ---------------------------------------------
+// Acepta la misma comanda que glop.createComanda (salida de order.toComanda()).
+export async function createComandaWeb(comanda) {
+  if (!WEB_TOKEN) throw new Error("[WEB] Falta NEREA_WEB_TOKEN en Railway.");
+
+  const c = comanda || {};
+  const cust = c.customer || {};
+  const lines = c.lines || [];
+
+  const items = [];
+  for (const l of lines) {
+    const product_id = await resolveProductId(l);
+    const noteBits = [];
+    if (l.notes) noteBits.push(l.notes);
+    const extras = Array.isArray(l.extras) ? l.extras : [];
+    const mods   = Array.isArray(l.modifiers) ? l.modifiers : [];
+    for (const e of [...extras, ...mods]) {
+      const n = e?.name || e?.nombre;
+      if (n) noteBits.push(`extra: ${n}${(e.qty ?? 1) > 1 ? ` x${e.qty}` : ""}`);
+    }
+    items.push({
+      product_id,
+      quantity: l.qty ?? l.quantity ?? 1,
+      extras: [],                       // formato del plugin sin documentar: van en notes
+      notes: noteBits.join(" · "),
+    });
   }
 
-  const payload = mapToGlopPayload(comanda);
+  const esDomicilio = String(cust.type || "").toLowerCase().includes("domicil") || !!cust.address;
+  const payload = {
+    confirmed_by_customer: true,
+    customer_name: cust.name || "Cliente",
+    phone: cust.phone || cust.phoneNumber || "",
+    email: cust.email || "",
+    type: esDomicilio ? "domicilio" : "recogida",
+    address: esDomicilio ? String(cust.address || "") : "",
+    items,
+    notes: cust.notes || "Pedido telefónico (Nora)",
+  };
 
-  if (!GLOP_ENABLED) {
-    console.log("[GLOP] (desactivado) pedido simulado:", JSON.stringify(payload));
-    return { ok: true, simulated: true, glopOrderId: `MOCK-${Date.now()}` };
-  }
-
-  if (!GLOP_LOCATION) {
-    throw new Error("[GLOP] Falta GLOP_LOCATION (identificador de localización que da Glop).");
-  }
-
-  console.log("[GLOP] enviando pedido ->", JSON.stringify(payload));
-  const token = await getAccessToken();
-  const res = await fetch(`${GLOP_API_BASE}/api/v1/delivery/orders`, {
+  console.log("[WEB] enviando pedido ->", JSON.stringify(payload));
+  const res = await fetch(`${WEB_BASE}/wp-json/nerea-voice/v1/crear-pedido`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Nerea-Voice-Token": WEB_TOKEN,
     },
-    // La doc titula el cuerpo "Array de pedido de delivery", pero el ejemplo cURL
-    // envía un objeto suelto. Enviamos objeto (como el ejemplo). Si Glop pide array,
-    // cambiar a: JSON.stringify([payload]).
     body: JSON.stringify(payload),
   });
   const text = await res.text().catch(() => "");
-  console.log("[GLOP] respuesta", res.status, text);
-  if (!res.ok) throw new Error(`Glop API ${res.status}: ${text}`);
-  return { ok: true, simulated: false, status: res.status, raw: text };
-}
+  console.log("[WEB] respuesta", res.status, text.slice(0, 500));
+  if (!res.ok) throw new Error(`[WEB] crear-pedido ${res.status}: ${text.slice(0, 300)}`);
 
-// Traduce la comanda de Nora (formato order.toComanda()) al cuerpo de Glop.
-// Tolera ambos juegos de nombres: name|description, priceEuros|unitPriceEur.
-function mapToGlopPayload(c) {
-  const lines = c.lines || [];
-
-  const items = lines.map((l) => {
-    const precio = l.priceEuros ?? l.unitPriceEur ?? l.priceEur ?? 0;
-    const nombre = l.name || l.description || "";
-    const item = {
-      plu: l.glopProductId || l.plu || "",
-      name: nombre,
-      price: toCents(precio),
-      quantity: l.qty ?? l.quantity ?? 1,
-    };
-
-    if (Array.isArray(l.extras) && l.extras.length && l.extras[0]?.glopProductId) {
-      item.subItems = l.extras.map((e) => ({
-        plu: e.glopProductId,
-        name: e.name || "",
-        price: toCents(e.priceEuros ?? e.unitPriceEur ?? 0),
-        quantity: e.qty ?? 1,
-      }));
-    } else if (Array.isArray(l.modifiers) && l.modifiers.length) {
-      const n = l.modifiers.reduce((s, m) => s + (m.qty || 1), 0);
-      item.remark = `${l.notes ? l.notes + " · " : ""}+${n} ingrediente(s) extra`;
-    } else if (l.notes) {
-      item.remark = l.notes;
-    }
-    return item;
-  });
-
-  const totalCents = items.reduce((sum, it) => {
-    const subs = (it.subItems || []).reduce((s, x) => s + (x.price || 0) * (x.quantity || 1), 0);
-    return sum + (it.price || 0) * (it.quantity || 1) + subs;
-  }, 0);
-
-  const cust = c.customer || {};
-  const now = new Date().toISOString();
-  const tieneDireccion = !USAR_MESA && !!cust.address;
-
-  const payload = {
-    orderId: `NORA-${Date.now()}`,
-    deliveryTime: now,
-    _created: now,
-    _updated: now,
-    location: GLOP_LOCATION,
-    orderIsAlreadyPaid: false,
-    discountTotal: 0,
-    channel: { slug: GLOP_CHANNEL_SLUG },
-    payment: { amount: totalCents },
-    customer: {
-      name: cust.name || "Cliente",
-      phoneNumber: cust.phone || cust.phoneNumber || "",
-      phoneAccessCode: cust.phoneAccessCode || "-",
-      email: cust.email || "-",
-    },
-    deliveryAddress: tieneDireccion
-      ? {
-          street: String(cust.address),
-          streetNumber: String(cust.streetNumber || ""),
-          postalCode: String(cust.postalCode || ""),
-          city: String(cust.city || "Gandia"),
-        }
-      : {},
-    note: cust.notes || "Pedido telefónico (Nora)",
-    orderType: tieneDireccion ? 2 : 1,
-    deliveryCost: 0,
-    serviceCharge: 0,
-    deliveryTip: 0,
-    account: GLOP_ACCOUNT,
-    items,
-  };
-
-  if (USAR_MESA) {
-    payload.id_mesa = String(GLOP_MESA);
-  }
-
-  return payload;
+  let orderId = null;
+  try { const j = JSON.parse(text); orderId = j.order_id ?? j.id ?? j.pedido_id ?? null; } catch {}
+  return { ok: true, simulated: false, via: "web", status: res.status, glopOrderId: orderId, raw: text };
 }
