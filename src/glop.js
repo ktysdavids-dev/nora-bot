@@ -1,6 +1,10 @@
 // glop.js — Adaptador de integración con el TPV Glop (API Cloud).
 //
-// Payload ALINEADO con la documentación oficial de Glop (apidoc.glop.es):
+// ENRUTADOR: si NEREA_WEB_ENABLED=true, el pedido sale por el plugin web de
+// Casa Nerea (web.js: WooCommerce -> Glop). Si no, por la API directa de Glop.
+// La vía web es TEMPORAL hasta que Glop entregue location/account.
+//
+// Payload API directa ALINEADO con la documentación oficial (apidoc.glop.es):
 //   - Token:        POST /api/v1/auth/oauth/token  (OJO: la doc lista /api/v1/oauth/token; ver nota abajo)
 //   - Envío pedido: POST /api/v1/delivery/orders
 //
@@ -13,6 +17,8 @@
 //   GLOP_ACCOUNT     -> Campo "account" del pedido. Confirmar valor con Glop. Obligatorio para envío real.
 //   GLOP_CHANNEL_SLUG-> Nombre único del canal (por defecto "nora").
 //   GLOP_MESA        -> mesa donde aparcar el pedido (p.ej. "1"). Vacío/"delivery"/"0" = reparto sin id_mesa.
+
+import { WEB_ENABLED, createComandaWeb } from "./web.js";
 
 const env = process.env;
 const truthy = (v) => v === "true" || v === "verdadero" || v === "TRUE";
@@ -63,9 +69,15 @@ function toCents(value) {
   return Math.round(Number(value) * 100);
 }
 
-// --- Crear comanda en Glop ("Recibir pedidos") ------------------------------
+// --- Crear comanda ------------------------------------------------------------
 // Acepta directamente la salida de order.toComanda().
+// ENRUTADOR: web (temporal) o API directa de Glop.
 export async function createComanda(comanda) {
+  if (WEB_ENABLED) {
+    console.log("[GLOP] enrutando pedido por la VÍA WEB (plugin WooCommerce).");
+    return createComandaWeb(comanda);
+  }
+
   const payload = mapToGlopPayload(comanda);
 
   if (!GLOP_ENABLED) {
@@ -112,8 +124,6 @@ function mapToGlopPayload(c) {
       quantity: l.qty ?? l.quantity ?? 1,
     };
 
-    // Extras: si vienen como subItems con código (PLU), se mandan; si son
-    // "modifiers" genéricos (sin PLU), se reflejan en remark para no romper el pedido.
     if (Array.isArray(l.extras) && l.extras.length && l.extras[0]?.glopProductId) {
       item.subItems = l.extras.map((e) => ({
         plu: e.glopProductId,
