@@ -73,4 +73,109 @@ export async function createComanda(comanda) {
     return createComandaWeb(comanda);
   }
 
-  const
+  const payload = mapToGlopPayload(comanda);
+
+  if (!GLOP_ENABLED) {
+    console.log("[GLOP] (desactivado) pedido simulado:", JSON.stringify(payload));
+    return { ok: true, simulated: true, glopOrderId: `MOCK-${Date.now()}` };
+  }
+
+  if (!GLOP_LOCATION) {
+    throw new Error("[GLOP] Falta GLOP_LOCATION (identificador de localización que da Glop).");
+  }
+
+  console.log("[GLOP] enviando pedido ->", JSON.stringify(payload));
+  const token = await getAccessToken();
+  const res = await fetch(`${GLOP_API_BASE}/api/v1/delivery/orders`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text().catch(() => "");
+  console.log("[GLOP] respuesta", res.status, text);
+  if (!res.ok) throw new Error(`Glop API ${res.status}: ${text}`);
+  return { ok: true, simulated: false, status: res.status, raw: text };
+}
+
+// Traduce la comanda de Nora al cuerpo de la API directa de Glop.
+function mapToGlopPayload(c) {
+  const lines = c.lines || [];
+
+  const items = lines.map((l) => {
+    const precio = l.priceEuros ?? l.unitPriceEur ?? l.priceEur ?? 0;
+    const nombre = l.name || l.description || "";
+    const item = {
+      plu: l.glopProductId || l.plu || "",
+      name: nombre,
+      price: toCents(precio),
+      quantity: l.qty ?? l.quantity ?? 1,
+    };
+
+    if (Array.isArray(l.extras) && l.extras.length && l.extras[0]?.glopProductId) {
+      item.subItems = l.extras.map((e) => ({
+        plu: e.glopProductId,
+        name: e.name || "",
+        price: toCents(e.priceEuros ?? e.unitPriceEur ?? 0),
+        quantity: e.qty ?? 1,
+      }));
+    } else if (Array.isArray(l.modifiers) && l.modifiers.length) {
+      const n = l.modifiers.reduce((s, m) => s + (m.qty || 1), 0);
+      item.remark = `${l.notes ? l.notes + " · " : ""}+${n} ingrediente(s) extra`;
+    } else if (l.notes) {
+      item.remark = l.notes;
+    }
+    return item;
+  });
+
+  const totalCents = items.reduce((sum, it) => {
+    const subs = (it.subItems || []).reduce((s, x) => s + (x.price || 0) * (x.quantity || 1), 0);
+    return sum + (it.price || 0) * (it.quantity || 1) + subs;
+  }, 0);
+
+  const cust = c.customer || {};
+  const now = new Date().toISOString();
+  const tieneDireccion = !USAR_MESA && !!cust.address;
+
+  const payload = {
+    orderId: `NORA-${Date.now()}`,
+    deliveryTime: now,
+    _created: now,
+    _updated: now,
+    location: GLOP_LOCATION,
+    orderIsAlreadyPaid: false,
+    discountTotal: 0,
+    channel: { slug: GLOP_CHANNEL_SLUG },
+    payment: { amount: totalCents },
+    customer: {
+      name: cust.name || "Cliente",
+      phoneNumber: cust.phone || cust.phoneNumber || "",
+      phoneAccessCode: cust.phoneAccessCode || "-",
+      email: cust.email || "-",
+    },
+    deliveryAddress: tieneDireccion
+      ? {
+          street: String(cust.address),
+          streetNumber: String(cust.streetNumber || ""),
+          postalCode: String(cust.postalCode || ""),
+          city: String(cust.city || "Gandia"),
+        }
+      : {},
+    note: cust.notes || "Pedido telefónico (Nora)",
+    orderType: tieneDireccion ? 2 : 1,
+    deliveryCost: 0,
+    serviceCharge: 0,
+    deliveryTip: 0,
+    account: GLOP_ACCOUNT,
+    items,
+  };
+
+  if (USAR_MESA) {
+    payload.id_mesa = String(GLOP_MESA);
+  }
+
+  return payload;
+}
