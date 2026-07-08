@@ -185,21 +185,27 @@ export async function createComandaTpv(comanda) {
     String(cust.type || "").toLowerCase().includes("domicil") || !!cust.address;
   const zone = esDomicilio ? resolveZone(cat, cust.city, cust.address) : null;
 
+  // Identificador de sesión externo requerido por el TPV (VALIDATION_ERROR 8 jul).
+  // Uno por pedido: estable dentro del flujo quote -> draft -> confirm.
+  const externalSessionId = `nora-${c.orderId || c.id || randomUUID()}`;
+
   // Campos según VALIDATION_ERROR del TPV (8 jul): deliveryType "pickup"|"delivery".
+  // El quote avisó de "customer.address": la dirección va DENTRO de customer.
   const orderBody = {
     channel: "voice_ai",
+    externalSessionId,
     deliveryType: esDomicilio ? "delivery" : "pickup",
     customer: {
       name: cust.name || "Cliente",
       phone: cust.phone || cust.phoneNumber || "",
+      address: esDomicilio
+        ? {
+            street: String(cust.address || ""),
+            city: String(cust.city || "Gandía"),
+            zoneId: zone ? zone.id : undefined,
+          }
+        : undefined,
     },
-    address: esDomicilio
-      ? {
-          street: String(cust.address || ""),
-          city: String(cust.city || "Gandía"),
-          zoneId: zone ? zone.id : undefined,
-        }
-      : undefined,
     items,
     notes: cust.notes || "Pedido telefónico (Nora)",
     paymentMethod: esDomicilio ? "cash_delivery" : "cash_local",
