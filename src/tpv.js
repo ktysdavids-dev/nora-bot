@@ -106,6 +106,7 @@ function findByName(list, name) {
 }
 
 // Resuelve una línea de Nora contra el catálogo del TPV.
+// Campos según VALIDATION_ERROR del TPV (8 jul): productId numérico por item.
 function resolveLine(cat, l) {
   const name = l.name || l.description || "";
   const qty = l.qty ?? l.quantity ?? 1;
@@ -120,13 +121,13 @@ function resolveLine(cat, l) {
     const extraNotes = [];
     for (const e of [...(l.extras || []), ...(l.modifiers || [])]) {
       const sup = findByName(cat.supplements, e?.name || e?.nombre || "");
-      if (sup) supplements.push({ id: sup.id, quantity: e.qty ?? 1 });
+      if (sup) supplements.push({ productId: Number(sup.id), quantity: e.qty ?? 1 });
       else if (e?.name || e?.nombre) extraNotes.push(`extra: ${e.name || e.nombre}`);
     }
     return {
       item: {
         type: "pizza",
-        id: pizza.id,
+        productId: Number(pizza.id),
         sizeId,
         quantity: qty,
         supplements,
@@ -143,7 +144,7 @@ function resolveLine(cat, l) {
   for (const [type, pool] of pools) {
     const hit = findByName(pool, name);
     if (hit) {
-      return { item: { type, id: hit.id, quantity: qty, notes } };
+      return { item: { type, productId: Number(hit.id), quantity: qty, notes } };
     }
   }
 
@@ -184,11 +185,10 @@ export async function createComandaTpv(comanda) {
     String(cust.type || "").toLowerCase().includes("domicil") || !!cust.address;
   const zone = esDomicilio ? resolveZone(cat, cust.city, cust.address) : null;
 
-  // [Adivinando] Estructura del pedido deducida del catálogo. Si el TPV
-  // devuelve 400/422, el log muestra su respuesta y se ajustan los nombres.
+  // Campos según VALIDATION_ERROR del TPV (8 jul): deliveryType "pickup"|"delivery".
   const orderBody = {
     channel: "voice_ai",
-    type: esDomicilio ? "delivery" : "pickup",
+    deliveryType: esDomicilio ? "delivery" : "pickup",
     customer: {
       name: cust.name || "Cliente",
       phone: cust.phone || cust.phoneNumber || "",
