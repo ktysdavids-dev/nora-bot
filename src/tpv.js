@@ -1,5 +1,5 @@
 // tpv.js — Conector de Nora al TPV Normobile (API Voice AI de Noro).
-// Flujo: catalog -> quote -> draft -> confirm (directOrders desactivado en el TPV).
+// Flujo oficial (confirmado por Noro 8 jul): catalog -> orders/validate -> drafts -> drafts/{id}/confirm.
 // Precios autoritativos: los pone el TPV desde su catálogo.
 //
 // Autenticación: API Key + HMAC SHA256.
@@ -14,7 +14,7 @@
 //   TPV_BASE               -> https://tpv.normobile.es (por defecto)
 //   TPV_TS_MODE            -> "s" (segundos, por defecto) | "ms" (milisegundos)
 //   TPV_SIG_ENCODING       -> "hex" (por defecto) | "base64"
-//   TPV_SEND_TO_KITCHEN    -> "true" solo cuando Noro dé luz verde (por defecto false)
+//   TPV_SEND_TO_KITCHEN    -> "true" solo cuando Noro confirme el pedido en su panel (por defecto false)
 //   TPV_PRINT_TICKET       -> "true" solo cuando Noro dé luz verde (por defecto false)
 
 import { createHmac, randomUUID } from "node:crypto";
@@ -106,7 +106,6 @@ function findByName(list, name) {
 }
 
 // Resuelve una línea de Nora contra el catálogo del TPV.
-// Campos según VALIDATION_ERROR del TPV (8 jul): productId numérico por item.
 function resolveLine(cat, l) {
   const name = l.name || l.description || "";
   const qty = l.qty ?? l.quantity ?? 1;
@@ -168,7 +167,7 @@ function resolveZone(cat, city, address) {
   return gandia || zones[0] || null;
 }
 
-// --- Flujo quote -> draft -> confirm --------------------------------------------
+// --- Flujo validate -> draft -> confirm ------------------------------------------
 // Acepta la misma comanda que glop.createComanda (salida de order.toComanda()).
 export async function createComandaTpv(comanda) {
   const c = comanda || {};
@@ -184,13 +183,11 @@ export async function createComandaTpv(comanda) {
   const esDomicilio =
     String(cust.type || "").toLowerCase().includes("domicil") || !!cust.address;
   const zone = esDomicilio ? resolveZone(cat, cust.city, cust.address) : null;
+  const paymentMethod = esDomicilio ? "cash_delivery" : "cash_local";
 
-  // Identificador de sesión externo requerido por el TPV (VALIDATION_ERROR 8 jul).
-  // Uno por pedido: estable dentro del flujo quote -> draft -> confirm.
+  // Identificador de sesión externo requerido por el TPV.
   const externalSessionId = `nora-${c.orderId || c.id || randomUUID()}`;
 
-  // Campos según VALIDATION_ERROR del TPV (8 jul): deliveryType "pickup"|"delivery".
-  // El quote avisó de "customer.address": la dirección va DENTRO de customer.
   const orderBody = {
     channel: "voice_ai",
     externalSessionId,
@@ -208,11 +205,11 @@ export async function createComandaTpv(comanda) {
     },
     items,
     notes: cust.notes || "Pedido telefónico (Nora)",
-    paymentMethod: esDomicilio ? "cash_delivery" : "cash_local",
+    paymentMethod,
   };
 
-  // 1) QUOTE — el TPV valida y pone precios
-  const quote = await tpvFetch("POST", "/api/voice-ai/orders/quote", orderBody);
+  // 1) VALIDATE — ruta oficial confirmada por Noro
+  const validate = await tpvFetch("POST", "/api/voice-ai/orders/validate", orderBody);
 
   // 2) DRAFT
   const draft = await tpvFetch("POST", "/api/voice-ai/drafts", orderBody);
@@ -222,14 +219,19 @@ export async function createComandaTpv(comanda) {
     throw new Error(`[TPV] El draft no devolvió draftId. Respuesta: ${JSON.stringify(draft).slice(0, 400)}`);
   }
 
-  // 3) CONFIRM — flags de prueba hasta luz verde de Noro
+  // 3) CONFIRM — payload oficial de Noro. sendToKitchen queda en false hasta
+  // que Noro confirme el pedido en su panel; luego TPV_SEND_TO_KITCHEN=true.
   const confirm = await tpvFetch("POST", `/api/voice-ai/drafts/${draftId}/confirm`, {
+    confirmedBy: "nora",
+    humanConfirmed: true,
     sendToKitchen: SEND_KITCHEN,
     printTicket: PRINT_TICKET,
+    paymentStatus: "pending",
+    paymentMethod,
   });
 
   const total =
-    quote.total ?? quote.totalEur ?? quote.amount ?? confirm.total ?? null;
+    validate.total ?? validate.totalEur ?? validate.amount ?? confirm.total ?? null;
 
   return {
     ok: true,
