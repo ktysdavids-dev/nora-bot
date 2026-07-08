@@ -1,181 +1,236 @@
-// glop.js — Enrutador de comandas + adaptador de la API directa de Glop.
+// tpv.js — Conector de Nora al TPV Normobile (API Voice AI de Noro).
+// Flujo: catalog -> quote -> draft -> confirm (directOrders desactivado en el TPV).
+// Precios autoritativos: los pone el TPV desde su catálogo.
 //
-// PRIORIDAD DE VÍAS en createComanda:
-//   1. TPV Normobile (TPV_ENABLED=true)  -> tpv.js  [vía actual de Casa Nerea]
-//   2. Plugin web WooCommerce (NEREA_WEB_ENABLED=true) -> web.js  [retirada]
-//   3. API directa de Glop (GLOP_ENABLED=true)  [activo de empresa, otros clientes]
-//   4. Nada activo -> pedido SIMULADO (solo log, no viaja a ninguna caja)
+// Autenticación: API Key + HMAC SHA256.
+//   Firma: HMAC_SHA256(timestamp + "." + rawBody, VOICE_AI_HMAC_SECRET)
+//   GET sin body: HMAC_SHA256(timestamp + ".", secret)
+//   Cabeceras: X-Voice-AI-Key, X-Voice-AI-Timestamp, X-Voice-AI-Signature, X-Idempotency-Key
 //
-// Variables de entorno Glop (para la vía 3):
-//   GLOP_HABILITADO / GLOP_ENABLED, BASE_API_GLOP / GLOP_API_BASE,
-//   ID_CLIENTE_GLOP / GLOP_CLIENT_ID, GLOP_SECRETO / GLOP_SECRET,
-//   GLOP_LOCATION, GLOP_ACCOUNT, GLOP_CHANNEL_SLUG, GLOP_MESA.
+// Variables de entorno (Railway):
+//   TPV_ENABLED            -> "true" para enviar pedidos al TPV Normobile
+//   VOICE_AI_API_KEY       -> API key (vask_...)
+//   VOICE_AI_HMAC_SECRET   -> secreto HMAC
+//   TPV_BASE               -> https://tpv.normobile.es (por defecto)
+//   TPV_TS_MODE            -> "s" (segundos, por defecto) | "ms" (milisegundos)
+//   TPV_SIG_ENCODING       -> "hex" (por defecto) | "base64"
+//   TPV_SEND_TO_KITCHEN    -> "true" solo cuando Noro dé luz verde (por defecto false)
+//   TPV_PRINT_TICKET       -> "true" solo cuando Noro dé luz verde (por defecto false)
 
-import { WEB_ENABLED, createComandaWeb } from "./web.js";
-import { TPV_ENABLED, createComandaTpv } from "./tpv.js";
+import { createHmac, randomUUID } from "node:crypto";
 
 const env = process.env;
 const truthy = (v) => v === "true" || v === "verdadero" || v === "TRUE";
 
-const GLOP_ENABLED      = truthy(env.GLOP_HABILITADO || env.GLOP_ENABLED);
-const GLOP_API_BASE     = env.BASE_API_GLOP   || env.GLOP_API_BASE   || "https://api.glop.es";
-const GLOP_CLIENT_ID    = env.ID_CLIENTE_GLOP || env.GLOP_CLIENT_ID  || "";
-const GLOP_SECRET       = env.GLOP_SECRETO    || env.GLOP_SECRET     || "";
-const GLOP_LOCATION     = (env.GLOP_LOCATION || "").trim();
-const GLOP_ACCOUNT      = (env.GLOP_ACCOUNT  || "").trim();
-const GLOP_CHANNEL_SLUG = (env.GLOP_CHANNEL_SLUG || "nora").trim();
-const GLOP_MESA         = (env.GLOP_MESA ?? "1").trim();
-const USAR_MESA         = GLOP_MESA !== "" && GLOP_MESA.toLowerCase() !== "delivery" && GLOP_MESA !== "0";
+export const TPV_ENABLED = truthy(env.TPV_ENABLED);
+const TPV_BASE     = (env.TPV_BASE || "https://tpv.normobile.es").replace(/\/$/, "");
+const API_KEY      = (env.VOICE_AI_API_KEY || "").trim();
+const HMAC_SECRET  = (env.VOICE_AI_HMAC_SECRET || "").trim();
+const TS_MODE      = (env.TPV_TS_MODE || "s").toLowerCase();          // "s" | "ms"
+const SIG_ENCODING = (env.TPV_SIG_ENCODING || "hex").toLowerCase();   // "hex" | "base64"
+const SEND_KITCHEN = truthy(env.TPV_SEND_TO_KITCHEN);
+const PRINT_TICKET = truthy(env.TPV_PRINT_TICKET);
 
-// --- Autenticación Glop --------------------------------------------------------
-let _token = null;
-let _tokenExp = 0;
-
-async function getAccessToken() {
-  const now = Date.now();
-  if (_token && now < _tokenExp - 30000) return _token;
-
-  // Doc oficial de Glop (jul 2026): scope "*" en /api/v1/auth/oauth/token.
-  const res = await fetch(`${GLOP_API_BASE}/api/v1/auth/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "client_credentials",
-      client_id: GLOP_CLIENT_ID,
-      client_secret: GLOP_SECRET,
-      scope: "*",
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Glop auth ${res.status}: ${t}`);
-  }
-  const data = await res.json();
-  _token = data.access_token;
-  _tokenExp = now + (data.expires_in ?? 3600) * 1000;
-  return _token;
+// --- Firma y petición ---------------------------------------------------------
+function sign(rawBody) {
+  const ts = TS_MODE === "ms" ? String(Date.now()) : String(Math.floor(Date.now() / 1000));
+  const sig = createHmac("sha256", HMAC_SECRET)
+    .update(`${ts}.${rawBody}`)
+    .digest(SIG_ENCODING === "base64" ? "base64" : "hex");
+  return { ts, sig };
 }
 
-function toCents(value) {
-  if (value == null) return 0;
-  return Math.round(Number(value) * 100);
-}
-
-// --- Crear comanda: ENRUTADOR ---------------------------------------------------
-export async function createComanda(comanda) {
-  if (TPV_ENABLED) {
-    console.log("[GLOP] enrutando pedido por el TPV NORMOBILE.");
-    return createComandaTpv(comanda);
+async function tpvFetch(method, path, bodyObj) {
+  if (!API_KEY || !HMAC_SECRET) {
+    throw new Error("[TPV] Faltan VOICE_AI_API_KEY o VOICE_AI_HMAC_SECRET en Railway.");
   }
+  const rawBody = bodyObj != null ? JSON.stringify(bodyObj) : "";
+  const { ts, sig } = sign(rawBody);
+  const headers = {
+    "X-Voice-AI-Key": API_KEY,
+    "X-Voice-AI-Timestamp": ts,
+    "X-Voice-AI-Signature": sig,
+    "X-Idempotency-Key": randomUUID(),
+  };
+  if (rawBody) headers["Content-Type"] = "application/json";
 
-  if (WEB_ENABLED) {
-    console.log("[GLOP] enrutando pedido por la VÍA WEB (plugin WooCommerce).");
-    return createComandaWeb(comanda);
-  }
-
-  const payload = mapToGlopPayload(comanda);
-
-  if (!GLOP_ENABLED) {
-    console.log("[GLOP] (desactivado) pedido simulado:", JSON.stringify(payload));
-    return { ok: true, simulated: true, glopOrderId: `MOCK-${Date.now()}` };
-  }
-
-  if (!GLOP_LOCATION) {
-    throw new Error("[GLOP] Falta GLOP_LOCATION (identificador de localización que da Glop).");
-  }
-
-  console.log("[GLOP] enviando pedido ->", JSON.stringify(payload));
-  const token = await getAccessToken();
-  const res = await fetch(`${GLOP_API_BASE}/api/v1/delivery/orders`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
+  const res = await fetch(`${TPV_BASE}${path}`, {
+    method,
+    headers,
+    body: rawBody || undefined,
   });
   const text = await res.text().catch(() => "");
-  console.log("[GLOP] respuesta", res.status, text);
-  if (!res.ok) throw new Error(`Glop API ${res.status}: ${text}`);
-  return { ok: true, simulated: false, status: res.status, raw: text };
+  console.log(`[TPV] ${method} ${path} -> ${res.status} ${text.slice(0, 800)}`);
+  let json = null;
+  try { json = JSON.parse(text); } catch {}
+  if (!res.ok) {
+    const err = new Error(`[TPV] ${method} ${path} ${res.status}: ${text.slice(0, 400)}`);
+    err.status = res.status;
+    err.body = json || text;
+    throw err;
+  }
+  return json ?? {};
 }
 
-// Traduce la comanda de Nora al cuerpo de la API directa de Glop.
-function mapToGlopPayload(c) {
-  const lines = c.lines || [];
+// --- Catálogo (cache 10 min) ----------------------------------------------------
+let _cat = null;
+let _catExp = 0;
 
-  const items = lines.map((l) => {
-    const precio = l.priceEuros ?? l.unitPriceEur ?? l.priceEur ?? 0;
-    const nombre = l.name || l.description || "";
-    const item = {
-      plu: l.glopProductId || l.plu || "",
-      name: nombre,
-      price: toCents(precio),
-      quantity: l.qty ?? l.quantity ?? 1,
-    };
+export async function loadTpvCatalog() {
+  const now = Date.now();
+  if (_cat && now < _catExp) return _cat;
+  const data = await tpvFetch("GET", "/api/voice-ai/catalog");
+  const c = data.catalog || data;
+  _cat = c;
+  _catExp = now + 10 * 60 * 1000;
+  const nPizzas = (c.pizzas || []).length;
+  console.log(`[TPV] catálogo cargado: ${nPizzas} pizzas, ${(c.supplements||[]).length} suplementos, ${(c.drinks||[]).length} bebidas.`);
+  return c;
+}
 
-    if (Array.isArray(l.extras) && l.extras.length && l.extras[0]?.glopProductId) {
-      item.subItems = l.extras.map((e) => ({
-        plu: e.glopProductId,
-        name: e.name || "",
-        price: toCents(e.priceEuros ?? e.unitPriceEur ?? 0),
-        quantity: e.qty ?? 1,
-      }));
-    } else if (Array.isArray(l.modifiers) && l.modifiers.length) {
-      const n = l.modifiers.reduce((s, m) => s + (m.qty || 1), 0);
-      item.remark = `${l.notes ? l.notes + " · " : ""}+${n} ingrediente(s) extra`;
-    } else if (l.notes) {
-      item.remark = l.notes;
+function norm(s) {
+  return String(s || "").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\b(pizza|pizzas)\b/g, "")
+    .replace(/[^a-z0-9ñ ]/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+function findByName(list, name) {
+  const t = norm(name);
+  if (!t) return null;
+  let hit = (list || []).find((p) => norm(p.name) === t);
+  if (!hit) hit = (list || []).find((p) => norm(p.name).includes(t) && t.length >= 4);
+  if (!hit) hit = (list || []).find((p) => t.includes(norm(p.name)) && norm(p.name).length >= 4);
+  return hit || null;
+}
+
+// Resuelve una línea de Nora contra el catálogo del TPV.
+function resolveLine(cat, l) {
+  const name = l.name || l.description || "";
+  const qty = l.qty ?? l.quantity ?? 1;
+  const notes = l.notes || "";
+
+  // 1) pizza
+  const pizza = findByName(cat.pizzas, name);
+  if (pizza) {
+    const sizeRaw = norm(l.sizeName || l.size || l.sizeId || "familiar");
+    const sizeId = sizeRaw.includes("median") ? "mediana" : "familiar";
+    const supplements = [];
+    const extraNotes = [];
+    for (const e of [...(l.extras || []), ...(l.modifiers || [])]) {
+      const sup = findByName(cat.supplements, e?.name || e?.nombre || "");
+      if (sup) supplements.push({ id: sup.id, quantity: e.qty ?? 1 });
+      else if (e?.name || e?.nombre) extraNotes.push(`extra: ${e.name || e.nombre}`);
     }
-    return item;
-  });
-
-  const totalCents = items.reduce((sum, it) => {
-    const subs = (it.subItems || []).reduce((s, x) => s + (x.price || 0) * (x.quantity || 1), 0);
-    return sum + (it.price || 0) * (it.quantity || 1) + subs;
-  }, 0);
-
-  const cust = c.customer || {};
-  const now = new Date().toISOString();
-  const tieneDireccion = !USAR_MESA && !!cust.address;
-
-  const payload = {
-    orderId: `NORA-${Date.now()}`,
-    deliveryTime: now,
-    _created: now,
-    _updated: now,
-    location: GLOP_LOCATION,
-    orderIsAlreadyPaid: false,
-    discountTotal: 0,
-    channel: { slug: GLOP_CHANNEL_SLUG },
-    payment: { amount: totalCents },
-    customer: {
-      name: cust.name || "Cliente",
-      phoneNumber: cust.phone || cust.phoneNumber || "",
-      phoneAccessCode: cust.phoneAccessCode || "-",
-      email: cust.email || "-",
-    },
-    deliveryAddress: tieneDireccion
-      ? {
-          street: String(cust.address),
-          streetNumber: String(cust.streetNumber || ""),
-          postalCode: String(cust.postalCode || ""),
-          city: String(cust.city || "Gandia"),
-        }
-      : {},
-    note: cust.notes || "Pedido telefónico (Nora)",
-    orderType: tieneDireccion ? 2 : 1,
-    deliveryCost: 0,
-    serviceCharge: 0,
-    deliveryTip: 0,
-    account: GLOP_ACCOUNT,
-    items,
-  };
-
-  if (USAR_MESA) {
-    payload.id_mesa = String(GLOP_MESA);
+    return {
+      item: {
+        type: "pizza",
+        id: pizza.id,
+        sizeId,
+        quantity: qty,
+        supplements,
+        notes: [notes, ...extraNotes].filter(Boolean).join(" · "),
+      },
+    };
   }
 
-  return payload;
+  // 2) bebidas / cervezas / entrantes / otros
+  const pools = [
+    ["drink", cat.drinks], ["beer", cat.beers],
+    ["starter", cat.starters], ["other", cat.others],
+  ];
+  for (const [type, pool] of pools) {
+    const hit = findByName(pool, name);
+    if (hit) {
+      return { item: { type, id: hit.id, quantity: qty, notes } };
+    }
+  }
+
+  // 3) sin mapeo -> error claro con candidatos en el log
+  const all = [
+    ...(cat.pizzas || []).map((p) => `pizza:${p.id}=${p.name}`),
+    ...(cat.drinks || []).map((p) => `drink:${p.id}=${p.name}`),
+    ...(cat.beers || []).map((p) => `beer:${p.id}=${p.name}`),
+    ...(cat.starters || []).map((p) => `starter:${p.id}=${p.name}`),
+  ].join(" | ");
+  console.error(`[TPV] SIN MAPEO para "${name}". Catálogo: ${all}`);
+  throw new Error(`[TPV] No encuentro en el catálogo del TPV: "${name}".`);
+}
+
+function resolveZone(cat, city, address) {
+  const t = norm(`${city || ""} ${address || ""}`);
+  const zones = cat.deliveryZones || [];
+  const grau = zones.find((z) => norm(z.name).includes("grau") || norm(z.name).includes("playa"));
+  if (grau && (t.includes("grau") || t.includes("playa"))) return grau;
+  const gandia = zones.find((z) => norm(z.name).includes("gandia"));
+  return gandia || zones[0] || null;
+}
+
+// --- Flujo quote -> draft -> confirm --------------------------------------------
+// Acepta la misma comanda que glop.createComanda (salida de order.toComanda()).
+export async function createComandaTpv(comanda) {
+  const c = comanda || {};
+  const cust = c.customer || {};
+  const cat = await loadTpvCatalog();
+
+  const items = [];
+  for (const l of (c.lines || [])) {
+    const { item } = resolveLine(cat, l);
+    items.push(item);
+  }
+
+  const esDomicilio =
+    String(cust.type || "").toLowerCase().includes("domicil") || !!cust.address;
+  const zone = esDomicilio ? resolveZone(cat, cust.city, cust.address) : null;
+
+  // [Adivinando] Estructura del pedido deducida del catálogo. Si el TPV
+  // devuelve 400/422, el log muestra su respuesta y se ajustan los nombres.
+  const orderBody = {
+    channel: "voice_ai",
+    type: esDomicilio ? "delivery" : "pickup",
+    customer: {
+      name: cust.name || "Cliente",
+      phone: cust.phone || cust.phoneNumber || "",
+    },
+    address: esDomicilio
+      ? {
+          street: String(cust.address || ""),
+          city: String(cust.city || "Gandía"),
+          zoneId: zone ? zone.id : undefined,
+        }
+      : undefined,
+    items,
+    notes: cust.notes || "Pedido telefónico (Nora)",
+    paymentMethod: esDomicilio ? "cash_delivery" : "cash_local",
+  };
+
+  // 1) QUOTE — el TPV valida y pone precios
+  const quote = await tpvFetch("POST", "/api/voice-ai/orders/quote", orderBody);
+
+  // 2) DRAFT
+  const draft = await tpvFetch("POST", "/api/voice-ai/drafts", orderBody);
+  const draftId =
+    draft.draftId ?? draft.id ?? draft.draft?.id ?? draft.data?.draftId ?? null;
+  if (!draftId) {
+    throw new Error(`[TPV] El draft no devolvió draftId. Respuesta: ${JSON.stringify(draft).slice(0, 400)}`);
+  }
+
+  // 3) CONFIRM — flags de prueba hasta luz verde de Noro
+  const confirm = await tpvFetch("POST", `/api/voice-ai/drafts/${draftId}/confirm`, {
+    sendToKitchen: SEND_KITCHEN,
+    printTicket: PRINT_TICKET,
+  });
+
+  const total =
+    quote.total ?? quote.totalEur ?? quote.amount ?? confirm.total ?? null;
+
+  return {
+    ok: true,
+    simulated: false,
+    via: "tpv",
+    glopOrderId: String(draftId),
+    total,
+    raw: JSON.stringify(confirm).slice(0, 500),
+  };
 }
