@@ -188,6 +188,14 @@ export async function createComandaTpv(comanda) {
   // Identificador de sesión externo requerido por el TPV.
   const externalSessionId = `nora-${c.orderId || c.id || randomUUID()}`;
 
+  // customer.address como STRING (VALIDATION_ERROR 8 jul 18:52). La ciudad va
+  // incluida en el texto para que el TPV resuelva la zona; zoneId viaja aparte.
+  const direccionTexto = esDomicilio
+    ? [String(cust.address || ""), String(cust.city || "Gandía")]
+        .filter(Boolean)
+        .join(", ")
+    : undefined;
+
   const orderBody = {
     channel: "voice_ai",
     externalSessionId,
@@ -195,14 +203,9 @@ export async function createComandaTpv(comanda) {
     customer: {
       name: cust.name || "Cliente",
       phone: cust.phone || cust.phoneNumber || "",
-      address: esDomicilio
-        ? {
-            street: String(cust.address || ""),
-            city: String(cust.city || "Gandía"),
-            zoneId: zone ? zone.id : undefined,
-          }
-        : undefined,
+      address: direccionTexto,
     },
+    deliveryZoneId: zone ? zone.id : undefined,
     items,
     notes: cust.notes || "Pedido telefónico (Nora)",
     paymentMethod,
