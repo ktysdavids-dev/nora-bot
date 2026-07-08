@@ -14,8 +14,8 @@
 //   TPV_BASE               -> https://tpv.normobile.es (por defecto)
 //   TPV_TS_MODE            -> "s" (segundos, por defecto) | "ms" (milisegundos)
 //   TPV_SIG_ENCODING       -> "hex" (por defecto) | "base64"
-//   TPV_SEND_TO_KITCHEN    -> "true" solo cuando Noro confirme el pedido en su panel (por defecto false)
-//   TPV_PRINT_TICKET       -> "true" solo cuando Noro dé luz verde (por defecto false)
+//   TPV_SEND_TO_KITCHEN    -> "true" (pedido por Noro 8 jul para el flujo completo)
+//   TPV_PRINT_TICKET       -> "false" salvo indicación de Noro
 
 import { createHmac, randomUUID } from "node:crypto";
 
@@ -188,8 +188,7 @@ export async function createComandaTpv(comanda) {
   // Identificador de sesión externo requerido por el TPV.
   const externalSessionId = `nora-${c.orderId || c.id || randomUUID()}`;
 
-  // customer.address como STRING (VALIDATION_ERROR 8 jul 18:52). La ciudad va
-  // incluida en el texto para que el TPV resuelva la zona; zoneId viaja aparte.
+  // customer.address como STRING (requisito del TPV).
   const direccionTexto = esDomicilio
     ? [String(cust.address || ""), String(cust.city || "Gandía")]
         .filter(Boolean)
@@ -211,19 +210,20 @@ export async function createComandaTpv(comanda) {
     paymentMethod,
   };
 
-  // 1) VALIDATE — ruta oficial confirmada por Noro
+  // 1) VALIDATE
   const validate = await tpvFetch("POST", "/api/voice-ai/orders/validate", orderBody);
 
-  // 2) DRAFT
-  const draft = await tpvFetch("POST", "/api/voice-ai/drafts", orderBody);
-  const draftId =
-    draft.draftId ?? draft.id ?? draft.draft?.id ?? draft.data?.draftId ?? null;
-  if (!draftId) {
-    throw new Error(`[TPV] El draft no devolvió draftId. Respuesta: ${JSON.stringify(draft).slice(0, 400)}`);
+  // 2) DRAFT — la respuesta viene anidada: {ok, draft:{draftId, draftCode, ...}}
+  const draftRes = await tpvFetch("POST", "/api/voice-ai/drafts", orderBody);
+  const d = draftRes.draft ?? draftRes.data?.draft ?? draftRes;
+  const draftId = d?.draftId ?? d?.id ?? null;
+  const draftCode = d?.draftCode ?? null;
+  if (draftId == null) {
+    throw new Error(`[TPV] El draft no devolvió draftId. Respuesta: ${JSON.stringify(draftRes).slice(0, 400)}`);
   }
+  console.log(`[TPV] draft creado: id=${draftId} code=${draftCode}`);
 
-  // 3) CONFIRM — payload oficial de Noro. sendToKitchen queda en false hasta
-  // que Noro confirme el pedido en su panel; luego TPV_SEND_TO_KITCHEN=true.
+  // 3) CONFIRM — payload oficial de Noro (8 jul).
   const confirm = await tpvFetch("POST", `/api/voice-ai/drafts/${draftId}/confirm`, {
     confirmedBy: "nora",
     humanConfirmed: true,
@@ -240,7 +240,7 @@ export async function createComandaTpv(comanda) {
     ok: true,
     simulated: false,
     via: "tpv",
-    glopOrderId: String(draftId),
+    glopOrderId: String(draftCode || draftId),
     total,
     raw: JSON.stringify(confirm).slice(0, 500),
   };
