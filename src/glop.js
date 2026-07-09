@@ -9,7 +9,12 @@
 // Variables de entorno Glop (para la vía 3):
 //   GLOP_HABILITADO / GLOP_ENABLED, BASE_API_GLOP / GLOP_API_BASE,
 //   ID_CLIENTE_GLOP / GLOP_CLIENT_ID, GLOP_SECRETO / GLOP_SECRET,
-//   GLOP_LOCATION, GLOP_ACCOUNT, GLOP_CHANNEL_SLUG, GLOP_MESA.
+//   GLOP_LOCATION (id EXACTO del catálogo de localizaciones, p.ej. CASA-NEREA-GANDIA),
+//   GLOP_ACCOUNT (no se usa en la integración agnóstica: vacío u omitido),
+//   GLOP_CHANNEL_SLUG, GLOP_MESA.
+//
+// PRECIOS: en EUROS con decimales (9.50), según el manual oficial de
+// distribuidores agnósticos (jul 2026, ejemplo "price": 9.50).
 
 import { WEB_ENABLED, createComandaWeb } from "./web.js";
 import { TPV_ENABLED, createComandaTpv } from "./tpv.js";
@@ -35,7 +40,6 @@ async function getAccessToken() {
   const now = Date.now();
   if (_token && now < _tokenExp - 30000) return _token;
 
-  // Doc oficial de Glop (jul 2026): scope "*" en /api/v1/auth/oauth/token.
   const res = await fetch(`${GLOP_API_BASE}/api/v1/auth/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -56,9 +60,10 @@ async function getAccessToken() {
   return _token;
 }
 
-function toCents(value) {
+// Precio en EUROS con 2 decimales (número), según manual agnóstico jul 2026.
+function toEuros(value) {
   if (value == null) return 0;
-  return Math.round(Number(value) * 100);
+  return Math.round(Number(value) * 100) / 100;
 }
 
 // --- Crear comanda: ENRUTADOR ---------------------------------------------------
@@ -81,7 +86,7 @@ export async function createComanda(comanda) {
   }
 
   if (!GLOP_LOCATION) {
-    throw new Error("[GLOP] Falta GLOP_LOCATION (identificador de localización que da Glop).");
+    throw new Error("[GLOP] Falta GLOP_LOCATION (id exacto de la localización, p.ej. CASA-NEREA-GANDIA).");
   }
 
   console.log("[GLOP] enviando pedido ->", JSON.stringify(payload));
@@ -111,7 +116,7 @@ function mapToGlopPayload(c) {
     const item = {
       plu: l.glopProductId || l.plu || "",
       name: nombre,
-      price: toCents(precio),
+      price: toEuros(precio),
       quantity: l.qty ?? l.quantity ?? 1,
     };
 
@@ -119,7 +124,7 @@ function mapToGlopPayload(c) {
       item.subItems = l.extras.map((e) => ({
         plu: e.glopProductId,
         name: e.name || "",
-        price: toCents(e.priceEuros ?? e.unitPriceEur ?? 0),
+        price: toEuros(e.priceEuros ?? e.unitPriceEur ?? 0),
         quantity: e.qty ?? 1,
       }));
     } else if (Array.isArray(l.modifiers) && l.modifiers.length) {
@@ -131,17 +136,17 @@ function mapToGlopPayload(c) {
     return item;
   });
 
-  const totalCents = items.reduce((sum, it) => {
+  const totalEuros = toEuros(items.reduce((sum, it) => {
     const subs = (it.subItems || []).reduce((s, x) => s + (x.price || 0) * (x.quantity || 1), 0);
     return sum + (it.price || 0) * (it.quantity || 1) + subs;
-  }, 0);
+  }, 0));
 
   const cust = c.customer || {};
   const now = new Date().toISOString();
   const tieneDireccion = !USAR_MESA && !!cust.address;
 
   const payload = {
-    orderId: `NORA-${Date.now()}`,
+    orderId: c.orderId || `NORA-${Date.now()}`,
     deliveryTime: now,
     _created: now,
     _updated: now,
@@ -149,7 +154,7 @@ function mapToGlopPayload(c) {
     orderIsAlreadyPaid: false,
     discountTotal: 0,
     channel: { slug: GLOP_CHANNEL_SLUG },
-    payment: { amount: totalCents },
+    payment: { amount: totalEuros },
     customer: {
       name: cust.name || "Cliente",
       phoneNumber: cust.phone || cust.phoneNumber || "",
