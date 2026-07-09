@@ -1,20 +1,23 @@
 // glop.js — Enrutador de comandas + adaptador de la API directa de Glop.
 //
 // PRIORIDAD DE VÍAS en createComanda:
-//   1. TPV Normobile (TPV_ENABLED=true)  -> tpv.js  [vía actual de Casa Nerea]
+//   1. TPV Normobile (TPV_ENABLED=true)  -> tpv.js
 //   2. Plugin web WooCommerce (NEREA_WEB_ENABLED=true) -> web.js  [retirada]
-//   3. API directa de Glop (GLOP_ENABLED=true)  [activo de empresa, otros clientes]
+//   3. API directa de Glop (GLOP_ENABLED=true)  [vía de producción de Casa Nerea]
 //   4. Nada activo -> pedido SIMULADO (solo log, no viaja a ninguna caja)
 //
-// Variables de entorno Glop (para la vía 3):
+// Variables de entorno Glop (vía 3):
 //   GLOP_HABILITADO / GLOP_ENABLED, BASE_API_GLOP / GLOP_API_BASE,
 //   ID_CLIENTE_GLOP / GLOP_CLIENT_ID, GLOP_SECRETO / GLOP_SECRET,
-//   GLOP_LOCATION (id EXACTO del catálogo de localizaciones, p.ej. CASA-NEREA-GANDIA),
-//   GLOP_ACCOUNT (no se usa en la integración agnóstica: vacío u omitido),
-//   GLOP_CHANNEL_SLUG, GLOP_MESA.
+//   GLOP_LOCATION (id EXACTO del catálogo, p.ej. CASA-NEREA-GANDIA),
+//   GLOP_ACCOUNT (no se usa: vacío), GLOP_CHANNEL_SLUG, GLOP_MESA.
 //
-// PRECIOS: en EUROS con decimales (9.50), según el manual oficial de
-// distribuidores agnósticos (jul 2026, ejemplo "price": 9.50).
+// FORMATO (verificado 9 jul con curl):
+//   - El cuerpo del POST /delivery/orders es un ARRAY de pedidos: [ {...} ].
+//     Con objeto suelto, el servidor devuelve 200 con error interno
+//     "Undefined array key 1". Con array, procesa sin error.
+//   - Precios en EUROS con decimales (9.50), según manual agnóstico jul 2026.
+//   - Glop puede devolver HTTP 200 con {"error":...} dentro: se trata como fallo.
 
 import { WEB_ENABLED, createComandaWeb } from "./web.js";
 import { TPV_ENABLED, createComandaTpv } from "./tpv.js";
@@ -60,7 +63,7 @@ async function getAccessToken() {
   return _token;
 }
 
-// Precio en EUROS con 2 decimales (número), según manual agnóstico jul 2026.
+// Precio en EUROS con 2 decimales (número).
 function toEuros(value) {
   if (value == null) return 0;
   return Math.round(Number(value) * 100) / 100;
@@ -98,12 +101,24 @@ export async function createComanda(comanda) {
       "Accept": "application/json",
       "Authorization": `Bearer ${token}`,
     },
-    body: JSON.stringify(payload),
+    // El cuerpo va como ARRAY de pedidos (verificado 9 jul).
+    body: JSON.stringify([payload]),
   });
   const text = await res.text().catch(() => "");
   console.log("[GLOP] respuesta", res.status, text);
   if (!res.ok) throw new Error(`Glop API ${res.status}: ${text}`);
-  return { ok: true, simulated: false, status: res.status, raw: text };
+
+  // Glop puede devolver 200 con un error interno dentro del cuerpo.
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch {}
+  const errInterno =
+    (parsed && !Array.isArray(parsed) && parsed.error) ||
+    (Array.isArray(parsed) && parsed.find((x) => x && x.error)?.error);
+  if (errInterno) {
+    throw new Error(`Glop API error interno: ${JSON.stringify(errInterno).slice(0, 300)}`);
+  }
+
+  return { ok: true, simulated: false, status: res.status, glopOrderId: payload.orderId, raw: text };
 }
 
 // Traduce la comanda de Nora al cuerpo de la API directa de Glop.
