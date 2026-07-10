@@ -6,6 +6,9 @@
 //   3. API directa de Glop (GLOP_ENABLED=true)  [vía de producción de Casa Nerea]
 //   4. Nada activo -> pedido SIMULADO (solo log, no viaja a ninguna caja)
 //
+// REGISTRO: cada pedido (éxito, fallo o simulado) se guarda en Supabase vía
+// store.js para el panel de Ktys & Davids. El registro nunca bloquea la venta.
+//
 // Variables de entorno Glop (vía 3):
 //   GLOP_HABILITADO / GLOP_ENABLED, BASE_API_GLOP / GLOP_API_BASE,
 //   ID_CLIENTE_GLOP / GLOP_CLIENT_ID, GLOP_SECRETO / GLOP_SECRET,
@@ -14,13 +17,12 @@
 //
 // FORMATO (verificado 9 jul con curl):
 //   - El cuerpo del POST /delivery/orders es un ARRAY de pedidos: [ {...} ].
-//     Con objeto suelto, el servidor devuelve 200 con error interno
-//     "Undefined array key 1". Con array, procesa sin error.
 //   - Precios en EUROS con decimales (9.50), según manual agnóstico jul 2026.
 //   - Glop puede devolver HTTP 200 con {"error":...} dentro: se trata como fallo.
 
 import { WEB_ENABLED, createComandaWeb } from "./web.js";
 import { TPV_ENABLED, createComandaTpv } from "./tpv.js";
+import { recordOrder } from "./store.js";
 
 const env = process.env;
 const truthy = (v) => v === "true" || v === "verdadero" || v === "TRUE";
@@ -33,7 +35,7 @@ const GLOP_LOCATION     = (env.GLOP_LOCATION || "").trim();
 const GLOP_ACCOUNT      = (env.GLOP_ACCOUNT  || "").trim();
 const GLOP_CHANNEL_SLUG = (env.GLOP_CHANNEL_SLUG || "nora").trim();
 const GLOP_MESA         = (env.GLOP_MESA ?? "1").trim();
-const USAR_MESA         = GLOP_MESA !== "" && GLOP_MESA.toLowerCase() !== "delivery" && GLOP_MESA !== "0";
+const USAR_MESA         = GLOP_MESA !== "" && GLOP_MESA.toLowerCase() !== "entrega" && GLOP_MESA.toLowerCase() !== "delivery" && GLOP_MESA !== "0";
 
 // --- Autenticación Glop --------------------------------------------------------
 let _token = null;
@@ -69,22 +71,89 @@ function toEuros(value) {
   return Math.round(Number(value) * 100) / 100;
 }
 
+// Extrae los datos comunes de la comanda para el registro en Supabase.
+function summarize(comanda, payload) {
+  const c = comanda || {};
+  const cust = c.customer || {};
+  const esDomicilio =
+    String(cust.type || "").toLowerCase().includes("domicil") || !!cust.address;
+  return {
+    deliveryType: esDomicilio ? "domicilio" : "recogida",
+    customerName: cust.name || null,
+    customerPhone: cust.phone || cust.phoneNumber || null,
+    poblacion: cust.poblacion || cust.city || null,
+    totalEur: payload?.payment?.amount ?? null,
+    items: payload?.items ?? (c.lines || null),
+  };
+}
+
 // --- Crear comanda: ENRUTADOR ---------------------------------------------------
 export async function createComanda(comanda) {
+  // ---- Vía 1: TPV Normobile ----
   if (TPV_ENABLED) {
     console.log("[GLOP] enrutando pedido por el TPV NORMOBILE.");
-    return createComandaTpv(comanda);
+    try {
+      const result = await createComandaTpv(comanda);
+      const s = summarize(comanda, null);
+      recordOrder({
+        orderId: result.glopOrderId, via: "tpv", status: "ok",
+        deliveryType: s.deliveryType, customerName: s.customerName,
+        customerPhone: s.customerPhone, poblacion: s.poblacion,
+        totalEur: result.total ?? null, items: s.items,
+        raw: { raw: result.raw ?? null },
+      });
+      return result;
+    } catch (err) {
+      const s = summarize(comanda, null);
+      recordOrder({
+        orderId: comanda?.orderId, via: "tpv", status: "error",
+        deliveryType: s.deliveryType, customerName: s.customerName,
+        customerPhone: s.customerPhone, poblacion: s.poblacion,
+        totalEur: null, items: s.items,
+        raw: { error: String(err?.message || err).slice(0, 500) },
+      });
+      throw err;
+    }
   }
 
+  // ---- Vía 2: plugin web (retirada, se conserva como respaldo) ----
   if (WEB_ENABLED) {
     console.log("[GLOP] enrutando pedido por la VÍA WEB (plugin WooCommerce).");
-    return createComandaWeb(comanda);
+    try {
+      const result = await createComandaWeb(comanda);
+      const s = summarize(comanda, null);
+      recordOrder({
+        orderId: result.glopOrderId, via: "web", status: "ok",
+        deliveryType: s.deliveryType, customerName: s.customerName,
+        customerPhone: s.customerPhone, poblacion: s.poblacion,
+        totalEur: null, items: s.items, raw: { raw: result.raw ?? null },
+      });
+      return result;
+    } catch (err) {
+      const s = summarize(comanda, null);
+      recordOrder({
+        orderId: comanda?.orderId, via: "web", status: "error",
+        deliveryType: s.deliveryType, customerName: s.customerName,
+        customerPhone: s.customerPhone, poblacion: s.poblacion,
+        totalEur: null, items: s.items,
+        raw: { error: String(err?.message || err).slice(0, 500) },
+      });
+      throw err;
+    }
   }
 
+  // ---- Vías 3 y 4: Glop directo o simulado ----
   const payload = mapToGlopPayload(comanda);
+  const s = summarize(comanda, payload);
 
   if (!GLOP_ENABLED) {
     console.log("[GLOP] (desactivado) pedido simulado:", JSON.stringify(payload));
+    recordOrder({
+      orderId: payload.orderId, via: "simulado", status: "ok",
+      deliveryType: s.deliveryType, customerName: s.customerName,
+      customerPhone: s.customerPhone, poblacion: s.poblacion,
+      totalEur: s.totalEur, items: s.items, raw: null,
+    });
     return { ok: true, simulated: true, glopOrderId: `MOCK-${Date.now()}` };
   }
 
@@ -92,33 +161,52 @@ export async function createComanda(comanda) {
     throw new Error("[GLOP] Falta GLOP_LOCATION (id exacto de la localización, p.ej. CASA-NEREA-GANDIA).");
   }
 
-  console.log("[GLOP] enviando pedido ->", JSON.stringify(payload));
-  const token = await getAccessToken();
-  const res = await fetch(`${GLOP_API_BASE}/api/v1/delivery/orders`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
-    // El cuerpo va como ARRAY de pedidos (verificado 9 jul).
-    body: JSON.stringify([payload]),
-  });
-  const text = await res.text().catch(() => "");
-  console.log("[GLOP] respuesta", res.status, text);
-  if (!res.ok) throw new Error(`Glop API ${res.status}: ${text}`);
+  try {
+    console.log("[GLOP] enviando pedido ->", JSON.stringify(payload));
+    const token = await getAccessToken();
+    const res = await fetch(`${GLOP_API_BASE}/api/v1/delivery/orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      // El cuerpo va como ARRAY de pedidos (verificado 9 jul).
+      body: JSON.stringify([payload]),
+    });
+    const text = await res.text().catch(() => "");
+    console.log("[GLOP] respuesta", res.status, text);
+    if (!res.ok) throw new Error(`Glop API ${res.status}: ${text}`);
 
-  // Glop puede devolver 200 con un error interno dentro del cuerpo.
-  let parsed = null;
-  try { parsed = JSON.parse(text); } catch {}
-  const errInterno =
-    (parsed && !Array.isArray(parsed) && parsed.error) ||
-    (Array.isArray(parsed) && parsed.find((x) => x && x.error)?.error);
-  if (errInterno) {
-    throw new Error(`Glop API error interno: ${JSON.stringify(errInterno).slice(0, 300)}`);
+    // Glop puede devolver 200 con un error interno dentro del cuerpo.
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    const errInterno =
+      (parsed && !Array.isArray(parsed) && parsed.error) ||
+      (Array.isArray(parsed) && parsed.find((x) => x && x.error)?.error);
+    if (errInterno) {
+      throw new Error(`Glop API error interno: ${JSON.stringify(errInterno).slice(0, 300)}`);
+    }
+
+    recordOrder({
+      orderId: payload.orderId, via: "glop", status: "ok",
+      deliveryType: s.deliveryType, customerName: s.customerName,
+      customerPhone: s.customerPhone, poblacion: s.poblacion,
+      totalEur: s.totalEur, items: s.items,
+      raw: { response: text.slice(0, 500) },
+    });
+
+    return { ok: true, simulated: false, status: res.status, glopOrderId: payload.orderId, raw: text };
+  } catch (err) {
+    recordOrder({
+      orderId: payload.orderId, via: "glop", status: "error",
+      deliveryType: s.deliveryType, customerName: s.customerName,
+      customerPhone: s.customerPhone, poblacion: s.poblacion,
+      totalEur: s.totalEur, items: s.items,
+      raw: { error: String(err?.message || err).slice(0, 500) },
+    });
+    throw err;
   }
-
-  return { ok: true, simulated: false, status: res.status, glopOrderId: payload.orderId, raw: text };
 }
 
 // Traduce la comanda de Nora al cuerpo de la API directa de Glop.
