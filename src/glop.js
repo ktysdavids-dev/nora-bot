@@ -9,15 +9,14 @@
 // REGISTRO: cada pedido (éxito, fallo o simulado) se guarda en Supabase vía
 // store.js para el panel de Ktys & Davids. El registro nunca bloquea la venta.
 //
-// Variables de entorno Glop (vía 3):
-//   GLOP_HABILITADO / GLOP_ENABLED, BASE_API_GLOP / GLOP_API_BASE,
-//   ID_CLIENTE_GLOP / GLOP_CLIENT_ID, GLOP_SECRETO / GLOP_SECRET,
-//   GLOP_LOCATION (id EXACTO del catálogo, p.ej. CASA-NEREA-GANDIA),
-//   GLOP_ACCOUNT (no se usa: vacío), GLOP_CHANNEL_SLUG, GLOP_MESA.
+// DINERO (16 jul): payment.amount usa el totalEur de la comanda (incluye el
+// gasto de envío por zona calculado en order.js) y deliveryCost viaja con la
+// tarifa real de la zona. Ya no se recalcula ignorando el envío.
 //
-// FORMATO (verificado 9 jul con curl):
-//   - El cuerpo del POST /delivery/orders es un ARRAY de pedidos: [ {...} ].
-//   - Precios en EUROS con decimales (9.50), según manual agnóstico jul 2026.
+// FORMATO (confirmado por Glop/Daniel Ruiz 16 jul):
+//   - El cuerpo del POST /delivery/orders es un OBJETO {...}, NO un array.
+//   - No enviar email ni phoneAccessCode con "-": si faltan, se OMITEN.
+//   - Precios en EUROS con decimales (9.50).
 //   - Glop puede devolver HTTP 200 con {"error":...} dentro: se trata como fallo.
 
 import { WEB_ENABLED, createComandaWeb } from "./web.js";
@@ -34,7 +33,7 @@ const GLOP_SECRET       = env.GLOP_SECRETO    || env.GLOP_SECRET     || "";
 const GLOP_LOCATION     = (env.GLOP_LOCATION || "").trim();
 const GLOP_ACCOUNT      = (env.GLOP_ACCOUNT  || "").trim();
 const GLOP_CHANNEL_SLUG = (env.GLOP_CHANNEL_SLUG || "nora").trim();
-const GLOP_MESA         = (env.GLOP_MESA ?? "1").trim();
+const GLOP_MESA         = (env.GLOP_MESA ?? "0").trim();
 const USAR_MESA         = GLOP_MESA !== "" && GLOP_MESA.toLowerCase() !== "entrega" && GLOP_MESA.toLowerCase() !== "delivery" && GLOP_MESA !== "0";
 
 // --- Autenticación Glop --------------------------------------------------------
@@ -76,13 +75,14 @@ function summarize(comanda, payload) {
   const c = comanda || {};
   const cust = c.customer || {};
   const esDomicilio =
+    String(c.type || cust.type || "").toLowerCase().includes("deliv") ||
     String(cust.type || "").toLowerCase().includes("domicil") || !!cust.address;
   return {
     deliveryType: esDomicilio ? "domicilio" : "recogida",
     customerName: cust.name || null,
     customerPhone: cust.phone || cust.phoneNumber || null,
-    poblacion: cust.poblacion || cust.city || null,
-    totalEur: payload?.payment?.amount ?? null,
+    poblacion: cust.poblacion || cust.city || c.deliveryZoneName || null,
+    totalEur: c.totalEur ?? payload?.payment?.amount ?? null,
     items: payload?.items ?? (c.lines || null),
   };
 }
@@ -99,7 +99,7 @@ export async function createComanda(comanda) {
         orderId: result.glopOrderId, via: "tpv", status: "ok",
         deliveryType: s.deliveryType, customerName: s.customerName,
         customerPhone: s.customerPhone, poblacion: s.poblacion,
-        totalEur: result.total ?? null, items: s.items,
+        totalEur: result.total ?? s.totalEur, items: s.items,
         raw: { raw: result.raw ?? null },
       });
       return result;
@@ -109,7 +109,7 @@ export async function createComanda(comanda) {
         orderId: comanda?.orderId, via: "tpv", status: "error",
         deliveryType: s.deliveryType, customerName: s.customerName,
         customerPhone: s.customerPhone, poblacion: s.poblacion,
-        totalEur: null, items: s.items,
+        totalEur: s.totalEur, items: s.items,
         raw: { error: String(err?.message || err).slice(0, 500) },
       });
       throw err;
@@ -126,7 +126,7 @@ export async function createComanda(comanda) {
         orderId: result.glopOrderId, via: "web", status: "ok",
         deliveryType: s.deliveryType, customerName: s.customerName,
         customerPhone: s.customerPhone, poblacion: s.poblacion,
-        totalEur: null, items: s.items, raw: { raw: result.raw ?? null },
+        totalEur: s.totalEur, items: s.items, raw: { raw: result.raw ?? null },
       });
       return result;
     } catch (err) {
@@ -135,7 +135,7 @@ export async function createComanda(comanda) {
         orderId: comanda?.orderId, via: "web", status: "error",
         deliveryType: s.deliveryType, customerName: s.customerName,
         customerPhone: s.customerPhone, poblacion: s.poblacion,
-        totalEur: null, items: s.items,
+        totalEur: s.totalEur, items: s.items,
         raw: { error: String(err?.message || err).slice(0, 500) },
       });
       throw err;
@@ -171,8 +171,9 @@ export async function createComanda(comanda) {
         "Accept": "application/json",
         "Authorization": `Bearer ${token}`,
       },
-      // El cuerpo va como ARRAY de pedidos (verificado 9 jul).
-      body: JSON.stringify([payload]),
+      // El cuerpo va como OBJETO (confirmado por Glop/Daniel Ruiz 16 jul:
+      // con array descartaban el pedido al no encontrar la location).
+      body: JSON.stringify(payload),
     });
     const text = await res.text().catch(() => "");
     console.log("[GLOP] respuesta", res.status, text);
@@ -239,10 +240,15 @@ function mapToGlopPayload(c) {
     return item;
   });
 
-  const totalEuros = toEuros(items.reduce((sum, it) => {
+  // Total de artículos (sin envío), calculado de las líneas.
+  const itemsTotal = toEuros(items.reduce((sum, it) => {
     const subs = (it.subItems || []).reduce((s, x) => s + (x.price || 0) * (x.quantity || 1), 0);
     return sum + (it.price || 0) * (it.quantity || 1) + subs;
   }, 0));
+
+  // Envío real de la zona (viene de order.js) y total autoritativo de la comanda.
+  const deliveryFee = toEuros(c.deliveryFeeEur ?? 0);
+  const totalEuros  = toEuros(c.totalEur ?? (itemsTotal + deliveryFee));
 
   const cust = c.customer || {};
   const now = new Date().toISOString();
@@ -261,20 +267,22 @@ function mapToGlopPayload(c) {
     customer: {
       name: cust.name || "Cliente",
       phoneNumber: cust.phone || cust.phoneNumber || "",
-      phoneAccessCode: cust.phoneAccessCode || "-",
-      email: cust.email || "-",
+      // email y phoneAccessCode SOLO si existen: enviarlos con "-" provocaba
+      // el error interno de Glop (Daniel Ruiz, 16 jul). Si faltan, se omiten.
+      ...(cust.phoneAccessCode ? { phoneAccessCode: cust.phoneAccessCode } : {}),
+      ...(cust.email ? { email: cust.email } : {}),
     },
     deliveryAddress: tieneDireccion
       ? {
           street: String(cust.address),
           streetNumber: String(cust.streetNumber || ""),
           postalCode: String(cust.postalCode || ""),
-          city: String(cust.city || "Gandia"),
+          city: String(cust.poblacion || cust.city || "Gandia"),
         }
       : {},
     note: cust.notes || "Pedido telefónico (Nora)",
     orderType: tieneDireccion ? 2 : 1,
-    deliveryCost: 0,
+    deliveryCost: deliveryFee,
     serviceCharge: 0,
     deliveryTip: 0,
     account: GLOP_ACCOUNT,
