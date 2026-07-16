@@ -16,7 +16,7 @@
 // FORMATO (confirmado por Glop/Daniel Ruiz 16 jul):
 //   - El cuerpo del POST /delivery/orders es un OBJETO {...}, NO un array.
 //   - No enviar email ni phoneAccessCode con "-": si faltan, se OMITEN.
-//   - Precios en EUROS con decimales (9.50).
+//   - Precios en CÉNTIMOS enteros (14€ -> 1400). Confirmado con pedidos reales.
 //   - Glop puede devolver HTTP 200 con {"error":...} dentro: se trata como fallo.
 
 import { WEB_ENABLED, createComandaWeb } from "./web.js";
@@ -64,10 +64,12 @@ async function getAccessToken() {
   return _token;
 }
 
-// Precio en EUROS con 2 decimales (número).
-function toEuros(value) {
+// Precio en CÉNTIMOS enteros (confirmado por Glop/Daniel Ruiz 16 jul con
+// pedidos reales: 14€ -> 1400, 1.50€ -> 150). El manual mostraba euros, pero
+// la API real usa enteros en céntimos.
+function toCents(value) {
   if (value == null) return 0;
-  return Math.round(Number(value) * 100) / 100;
+  return Math.round(Number(value) * 100);
 }
 
 // Extrae los datos comunes de la comanda para el registro en Supabase.
@@ -220,7 +222,7 @@ function mapToGlopPayload(c) {
     const item = {
       plu: l.glopProductId || l.plu || "",
       name: nombre,
-      price: toEuros(precio),
+      price: toCents(precio),
       quantity: l.qty ?? l.quantity ?? 1,
     };
 
@@ -228,7 +230,7 @@ function mapToGlopPayload(c) {
       item.subItems = l.extras.map((e) => ({
         plu: e.glopProductId,
         name: e.name || "",
-        price: toEuros(e.priceEuros ?? e.unitPriceEur ?? 0),
+        price: toCents(e.priceEuros ?? e.unitPriceEur ?? 0),
         quantity: e.qty ?? 1,
       }));
     } else if (Array.isArray(l.modifiers) && l.modifiers.length) {
@@ -240,15 +242,15 @@ function mapToGlopPayload(c) {
     return item;
   });
 
-  // Total de artículos (sin envío), calculado de las líneas.
-  const itemsTotal = toEuros(items.reduce((sum, it) => {
+  // Total de artículos en CÉNTIMOS (las líneas ya van en céntimos).
+  const itemsTotalCents = items.reduce((sum, it) => {
     const subs = (it.subItems || []).reduce((s, x) => s + (x.price || 0) * (x.quantity || 1), 0);
     return sum + (it.price || 0) * (it.quantity || 1) + subs;
-  }, 0));
+  }, 0);
 
-  // Envío real de la zona (viene de order.js) y total autoritativo de la comanda.
-  const deliveryFee = toEuros(c.deliveryFeeEur ?? 0);
-  const totalEuros  = toEuros(c.totalEur ?? (itemsTotal + deliveryFee));
+  // Envío real de la zona y total autoritativo de la comanda, en CÉNTIMOS.
+  const deliveryFeeCents = toCents(c.deliveryFeeEur ?? 0);
+  const totalCents = c.totalEur != null ? toCents(c.totalEur) : (itemsTotalCents + deliveryFeeCents);
 
   const cust = c.customer || {};
   const now = new Date().toISOString();
@@ -263,7 +265,7 @@ function mapToGlopPayload(c) {
     orderIsAlreadyPaid: false,
     discountTotal: 0,
     channel: { slug: GLOP_CHANNEL_SLUG },
-    payment: { amount: totalEuros },
+    payment: { amount: totalCents },
     customer: {
       name: cust.name || "Cliente",
       phoneNumber: cust.phone || cust.phoneNumber || "",
@@ -282,7 +284,7 @@ function mapToGlopPayload(c) {
       : {},
     note: cust.notes || "Pedido telefónico (Nora)",
     orderType: tieneDireccion ? 2 : 1,
-    deliveryCost: deliveryFee,
+    deliveryCost: deliveryFeeCents,
     serviceCharge: 0,
     deliveryTip: 0,
     account: GLOP_ACCOUNT,
