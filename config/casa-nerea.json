@@ -526,7 +526,7 @@
             "default": "Coca-Cola lata"
           },
           "priceEur": 1.5,
-          "glopProductId": null
+          "glopProductId": "204201864"
         },
         {
           "id": "cocacola-zero-lata",
@@ -569,5 +569,5 @@
       ]
     }
   ],
-  "_nota_bebidas": "Bebidas y cervezas añadidas 16 jul (precios de Samuel 9 jul). glopProductId=null: pedir PLUs a Oscar para que salgan con codigo en el ticket Glop; mientras, viajan por nombre."
+  "_nota_bebidas": "PLU de Coca-Cola lata (204201864) confirmado por Glop 16 jul. RESTO DE BEBIDAS SIN PLU: pedir a Daniel/Oscar la lista completa de PLUs (aguas, Fantas, Coca-Cola 1L/2L/Zero, cervezas) para que se asignen como articulo en el ticket."
 }
