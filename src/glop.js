@@ -75,26 +75,6 @@ function toCents(value) {
 // Extrae los datos comunes de la comanda para el registro en Supabase.
 function summarize(comanda, payload) {
   const c = comanda || {};
-  // --- Envío como LÍNEA de ticket (16 jul): el TPV de Casa Nerea tiene el
-  // "Servicio Domicilio" dado de alta como ARTÍCULO por zona. Se añade una
-  // línea con el PLU de la zona y su importe, y deliveryCost va a 0 para no
-  // cobrarlo dos veces. Mapa zonaId (order.js) -> PLU (TPV).
-  const ZONE_PLUS = {
-    "gandia": "204206196",
-    "grau": "204206217",
-    "almoines": "204206243",
-    "real-de-gandia": "204206260",
-  };
-  const zonePlu = c.deliveryZoneId ? ZONE_PLUS[c.deliveryZoneId] : null;
-  if (deliveryFeeCents > 0 && zonePlu) {
-    items.push({
-      plu: zonePlu,
-      name: `Servicio Domicilio ${c.deliveryZoneName || ""}`.trim(),
-      price: deliveryFeeCents,
-      quantity: 1,
-    });
-  }
-
   const cust = c.customer || {};
   const esDomicilio =
     String(c.type || cust.type || "").toLowerCase().includes("deliv") ||
@@ -271,6 +251,27 @@ function mapToGlopPayload(c) {
   // Envío real de la zona y total autoritativo de la comanda, en CÉNTIMOS.
   const deliveryFeeCents = toCents(c.deliveryFeeEur ?? 0);
   const totalCents = c.totalEur != null ? toCents(c.totalEur) : (itemsTotalCents + deliveryFeeCents);
+
+  // --- Envío como LÍNEA de ticket (16 jul): el TPV de Casa Nerea tiene el
+  // "Servicio Domicilio" dado de alta como ARTÍCULO por zona. Se añade una
+  // línea con el PLU de la zona y su importe, y deliveryCost va a 0 para no
+  // cobrarlo dos veces. Mapa zonaId (order.js) -> PLU (TPV).
+  const ZONE_PLUS = {
+    "gandia": "204206196",
+    "grau": "204206217",
+    "almoines": "204206243",
+    "real-de-gandia": "204206260",
+  };
+  const zonePlu = c.deliveryZoneId ? ZONE_PLUS[c.deliveryZoneId] : null;
+  if (deliveryFeeCents > 0 && zonePlu) {
+    items.push({
+      plu: zonePlu,
+      name: `Servicio Domicilio ${c.deliveryZoneName || ""}`.trim(),
+      price: deliveryFeeCents,
+      quantity: 1,
+    });
+  }
+
 
   const cust = c.customer || {};
   const now = new Date().toISOString();
