@@ -42,7 +42,8 @@
           "es": "Gandía",
           "default": "Gandía"
         },
-        "feeEur": 1.7
+        "feeEur": 1.7,
+        "glopProductId": "204206196"
       },
       {
         "id": "real-de-gandia",
@@ -54,7 +55,8 @@
           "es": "Real de Gandía",
           "default": "Real de Gandía"
         },
-        "feeEur": 2.7
+        "feeEur": 2.7,
+        "glopProductId": "204206260"
       },
       {
         "id": "almoines",
@@ -65,7 +67,8 @@
           "es": "Almoines",
           "default": "Almoines"
         },
-        "feeEur": 2.7
+        "feeEur": 2.7,
+        "glopProductId": "204206243"
       },
       {
         "id": "grau",
@@ -78,7 +81,8 @@
           "es": "Grau de Gandía",
           "default": "Grau de Gandía"
         },
-        "feeEur": 2.7
+        "feeEur": 2.7,
+        "glopProductId": "204206217"
       }
     ]
   },
@@ -454,7 +458,7 @@
             "default": "Fanta limón 1 L"
           },
           "priceEur": 2.0,
-          "glopProductId": null
+          "glopProductId": "204202699"
         },
         {
           "id": "fanta-limon-lata",
@@ -463,7 +467,7 @@
             "default": "Fanta limón lata"
           },
           "priceEur": 1.5,
-          "glopProductId": null
+          "glopProductId": "204202366"
         },
         {
           "id": "fanta-naranja-1l",
@@ -472,7 +476,7 @@
             "default": "Fanta naranja 1 L"
           },
           "priceEur": 2.0,
-          "glopProductId": null
+          "glopProductId": "204202671"
         },
         {
           "id": "fanta-naranja-lata",
@@ -481,7 +485,7 @@
             "default": "Fanta naranja lata"
           },
           "priceEur": 1.5,
-          "glopProductId": null
+          "glopProductId": "204202332"
         },
         {
           "id": "cocacola-2l",
@@ -490,7 +494,7 @@
             "default": "Coca-Cola 2 L"
           },
           "priceEur": 2.5,
-          "glopProductId": null
+          "glopProductId": "204207343"
         },
         {
           "id": "cocacola-zero-2l",
@@ -499,7 +503,7 @@
             "default": "Coca-Cola Zero 2 L"
           },
           "priceEur": 2.5,
-          "glopProductId": null
+          "glopProductId": "204207367"
         },
         {
           "id": "cocacola-1l",
@@ -508,7 +512,7 @@
             "default": "Coca-Cola 1 L"
           },
           "priceEur": 2.0,
-          "glopProductId": null
+          "glopProductId": "204202388"
         },
         {
           "id": "cocacola-zero-1l",
@@ -517,7 +521,7 @@
             "default": "Coca-Cola Zero 1 L"
           },
           "priceEur": 2.0,
-          "glopProductId": null
+          "glopProductId": "204202633"
         },
         {
           "id": "cocacola-lata",
@@ -569,5 +573,5 @@
       ]
     }
   ],
-  "_nota_bebidas": "PLU de Coca-Cola lata (204201864) confirmado por Glop 16 jul. RESTO DE BEBIDAS SIN PLU: pedir a Daniel/Oscar la lista completa de PLUs (aguas, Fantas, Coca-Cola 1L/2L/Zero, cervezas) para que se asignen como articulo en el ticket."
+  "_nota_bebidas": "PLUs asignados 16 jul desde el TPV. PENDIENTES de confirmar con Oscar/Daniel: 204202088 'Cocacola Bote' (es la Zero lata?), 204143429 'Cerveza' (es la lata?), aguas 500ml/1.5L y Amstel 1L (no vistos en el buscador). Esos 4 viajan por nombre hasta tener PLU."
 }
