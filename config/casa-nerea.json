@@ -25,13 +25,62 @@
   },
   "policies": {
     "minOrderEur": 0,
-    "deliveryFeeEur": 0,
+    "deliveryFeeEur": 1.7,
     "paymentMethods": [
       "efectivo",
       "tarjeta"
     ],
     "asksForAddressWhenDelivery": true,
-    "supplementEur": 1.5
+    "supplementEur": 1.5,
+    "deliveryZones": [
+      {
+        "id": "gandia",
+        "match": [
+          "gandia"
+        ],
+        "name": {
+          "es": "Gandía",
+          "default": "Gandía"
+        },
+        "feeEur": 1.7
+      },
+      {
+        "id": "real-de-gandia",
+        "match": [
+          "real de gandia",
+          "real"
+        ],
+        "name": {
+          "es": "Real de Gandía",
+          "default": "Real de Gandía"
+        },
+        "feeEur": 2.7
+      },
+      {
+        "id": "almoines",
+        "match": [
+          "almoines"
+        ],
+        "name": {
+          "es": "Almoines",
+          "default": "Almoines"
+        },
+        "feeEur": 2.7
+      },
+      {
+        "id": "grau",
+        "match": [
+          "grau",
+          "grao",
+          "playa"
+        ],
+        "name": {
+          "es": "Grau de Gandía",
+          "default": "Grau de Gandía"
+        },
+        "feeEur": 2.7
+      }
+    ]
   },
   "featured": [
     "margarita",
@@ -39,11 +88,11 @@
     "barbacoa"
   ],
   "kitchen": {
-    "basePickupMin": 20,
+    "basePickupMin": 25,
     "baseDeliveryMin": 35,
     "windowMin": 10,
-    "capacityPerWindow": 8,
-    "minutesPerExtraUnit": 1.5,
+    "capacityPerWindow": 5,
+    "minutesPerExtraUnit": 2,
     "stepMin": 5,
     "maxPickupMin": 60,
     "maxDeliveryMin": 80
@@ -370,6 +419,155 @@
           "ingredients": "cebolla, champinon, jamon york, tomate fresco, nata, pimiento verde"
         }
       ]
+    },
+    {
+      "id": "bebidas",
+      "sized": false,
+      "name": {
+        "es": "Bebidas",
+        "en": "Drinks",
+        "default": "Bebidas"
+      },
+      "items": [
+        {
+          "id": "agua-05",
+          "name": {
+            "es": "Agua pequeña 500 ml",
+            "default": "Agua pequeña 500 ml"
+          },
+          "priceEur": 1.0,
+          "glopProductId": null
+        },
+        {
+          "id": "agua-15",
+          "name": {
+            "es": "Agua grande 1,5 L",
+            "default": "Agua grande 1,5 L"
+          },
+          "priceEur": 1.5,
+          "glopProductId": null
+        },
+        {
+          "id": "fanta-limon-1l",
+          "name": {
+            "es": "Fanta limón 1 L",
+            "default": "Fanta limón 1 L"
+          },
+          "priceEur": 2.0,
+          "glopProductId": null
+        },
+        {
+          "id": "fanta-limon-lata",
+          "name": {
+            "es": "Fanta limón lata",
+            "default": "Fanta limón lata"
+          },
+          "priceEur": 1.5,
+          "glopProductId": null
+        },
+        {
+          "id": "fanta-naranja-1l",
+          "name": {
+            "es": "Fanta naranja 1 L",
+            "default": "Fanta naranja 1 L"
+          },
+          "priceEur": 2.0,
+          "glopProductId": null
+        },
+        {
+          "id": "fanta-naranja-lata",
+          "name": {
+            "es": "Fanta naranja lata",
+            "default": "Fanta naranja lata"
+          },
+          "priceEur": 1.5,
+          "glopProductId": null
+        },
+        {
+          "id": "cocacola-2l",
+          "name": {
+            "es": "Coca-Cola 2 L",
+            "default": "Coca-Cola 2 L"
+          },
+          "priceEur": 2.5,
+          "glopProductId": null
+        },
+        {
+          "id": "cocacola-zero-2l",
+          "name": {
+            "es": "Coca-Cola Zero 2 L",
+            "default": "Coca-Cola Zero 2 L"
+          },
+          "priceEur": 2.5,
+          "glopProductId": null
+        },
+        {
+          "id": "cocacola-1l",
+          "name": {
+            "es": "Coca-Cola 1 L",
+            "default": "Coca-Cola 1 L"
+          },
+          "priceEur": 2.0,
+          "glopProductId": null
+        },
+        {
+          "id": "cocacola-zero-1l",
+          "name": {
+            "es": "Coca-Cola Zero 1 L",
+            "default": "Coca-Cola Zero 1 L"
+          },
+          "priceEur": 2.0,
+          "glopProductId": null
+        },
+        {
+          "id": "cocacola-lata",
+          "name": {
+            "es": "Coca-Cola lata",
+            "default": "Coca-Cola lata"
+          },
+          "priceEur": 1.5,
+          "glopProductId": null
+        },
+        {
+          "id": "cocacola-zero-lata",
+          "name": {
+            "es": "Coca-Cola Zero lata",
+            "default": "Coca-Cola Zero lata"
+          },
+          "priceEur": 1.5,
+          "glopProductId": null
+        }
+      ]
+    },
+    {
+      "id": "cervezas",
+      "sized": false,
+      "name": {
+        "es": "Cervezas",
+        "en": "Beers",
+        "default": "Cervezas"
+      },
+      "items": [
+        {
+          "id": "amstel-1l",
+          "name": {
+            "es": "Cerveza Amstel 1 L",
+            "default": "Cerveza Amstel 1 L"
+          },
+          "priceEur": 2.5,
+          "glopProductId": null
+        },
+        {
+          "id": "cerveza-lata",
+          "name": {
+            "es": "Cerveza lata",
+            "default": "Cerveza lata"
+          },
+          "priceEur": 1.5,
+          "glopProductId": null
+        }
+      ]
     }
-  ]
+  ],
+  "_nota_bebidas": "Bebidas y cervezas añadidas 16 jul (precios de Samuel 9 jul). glopProductId=null: pedir PLUs a Oscar para que salgan con codigo en el ticket Glop; mientras, viajan por nombre."
 }
